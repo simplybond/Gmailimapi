@@ -3,20 +3,21 @@
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
-  "scripts": {
-    "start": "node index.js",
+   "type": "module",
+   "scripts": {
+     "start": "node index.js",
      "dev": "nodemon index.js"
-  },
+   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "dotenv": "^16.4.5",
-    "imap": "^0.8.19",
-    "mailparser": "^3.6.0",
-    "node-telegram-bot-api": "^0.64.0"
-  },
-    "devDependencies": {
-    "nodemon": "^3.1.0"
-  }
+      "dotenv": "^16.4.5",
+      "imap": "^0.8.19",
+      "mailparser": "^3.6.0",
+      "node-telegram-bot-api": "^0.64.0"
+    },
+  "devDependencies": {
+       "nodemon": "^3.1.0"
+    }
 }
