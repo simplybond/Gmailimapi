@@ -22,6 +22,18 @@ if (!email || !password || !botToken) {
 
 console.log('Бот запущен...');
 
+// Добавим обработку команды /start
+bot.onText(/\/start/, (msg) => {
+    console.log("Получено сообщение /start:", msg); // Log the message
+    const chatId = msg.chat.id;
+    bot.sendMessage(chatId, 'Привет! Я ваш бот.');
+    console.log('Отправлено сообщение в ответ на /start');
+});
+    
+bot.on('message', (msg) => {
+   console.log("Получено сообщение:", msg); // Log all incoming messages
+});
+
 // Функция для проверки непрочитанных писем
 async function checkUnreadEmails(chatId) {
     const imap = new Imap({
