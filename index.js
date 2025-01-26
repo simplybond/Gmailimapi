@@ -22,16 +22,10 @@ if (!email || !password || !botToken) {
 
 console.log('Бот запущен...');
 
-// Добавим обработку команды /start
+// Обработчик команды /start
 bot.onText(/\/start/, (msg) => {
-    console.log("Получено сообщение /start:", msg); // Log the message
     const chatId = msg.chat.id;
     bot.sendMessage(chatId, 'Привет! Я ваш бот.');
-    console.log('Отправлено сообщение в ответ на /start');
-});
-    
-bot.on('message', (msg) => {
-   console.log("Получено сообщение:", msg); // Log all incoming messages
 });
 
 // Функция для проверки непрочитанных писем
@@ -42,6 +36,7 @@ async function checkUnreadEmails(chatId) {
         host: imapHost,
         port: imapPort,
         tls: true,
+        tlsOptions: { rejectUnauthorized: false }, // Игнорируем проверку сертификатов
     });
 
     try {
@@ -87,7 +82,7 @@ async function checkUnreadEmails(chatId) {
                 });
 
                 const parsedMail = await new Promise((resolve, reject) => {
-                    msg.on('body', (stream, info) => {
+                    msg.on('body', (stream) => {
                         simpleParser(stream, {}, (err, mail) => {
                             if (err) {
                                 reject(new Error(`Ошибка парсинга письма: ${err.message}`));
@@ -99,16 +94,17 @@ async function checkUnreadEmails(chatId) {
                 });
 
                 const emailInfo = `
-                **От:** ${parsedMail.from.text}
-                **Тема:** ${parsedMail.subject}
-                **Дата:** ${parsedMail.date}
+**От:** ${parsedMail.from.text}
+**Тема:** ${parsedMail.subject}
+**Дата:** ${parsedMail.date}
                 `;
+
                 const deleteButton = {
                     reply_markup: {
                         inline_keyboard: [[
                             { text: 'Удалить 🗑️', callback_data: `delete_${attributes.uid}` }
-                        ]]
-                    }
+                        ]],
+                    },
                 };
 
                 bot.sendMessage(chatId, emailInfo, deleteButton);
@@ -121,10 +117,12 @@ async function checkUnreadEmails(chatId) {
             fetch.once('error', reject);
             fetch.once('end', resolve);
         });
+
         console.log('Все письма получены.');
         imap.end();
     } catch (error) {
         console.error('Произошла ошибка:', error);
+        bot.sendMessage(chatId, `Произошла ошибка: ${error.message}`);
         imap.end();
     }
 }
@@ -137,6 +135,7 @@ async function deleteEmail(chatId, uid) {
         host: imapHost,
         port: imapPort,
         tls: true,
+        tlsOptions: { rejectUnauthorized: false }, // Игнорируем проверку сертификатов
     });
 
     try {
@@ -204,3 +203,4 @@ bot.on('callback_query', (query) => {
 });
 
 console.log('Бот работает!');
+
