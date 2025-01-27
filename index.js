@@ -14,7 +14,6 @@ const email = process.env.GMAIL_EMAIL;
 const password = process.env.GMAIL_APP_PASSWORD;
 const imapHost = process.env.IMAP_HOST || 'imap.yandex.ru';
 const imapPort = parseInt(process.env.IMAP_PORT || '993', 10);
-const certificate = process.env.CERTIFICATE;
 
 if (!email || !password || !botToken) {
     console.error('Ошибка: Отсутствуют необходимые переменные окружения.');
@@ -22,11 +21,6 @@ if (!email || !password || !botToken) {
 }
 
 console.log('Бот запущен...');
-if (process.env.CERTIFICATE) {
-    console.log('Сертификат получен из переменной окружения.');
-  } else{
-   console.log('Сертификат не получен из переменной окружения.')
-  }
 
 // Обработчик команды /start
 bot.onText(/\/start/, (msg) => {
@@ -42,21 +36,21 @@ async function checkUnreadEmails(chatId) {
         host: imapHost,
         port: imapPort,
         tls: true,
+        tlsOptions: {
+            rejectUnauthorized: false, // Отключение проверки сертификатов
+        },
     };
-     if(certificate) {
-         imapOptions.tlsOptions = { ca: [certificate] }
-     }
-  const imap = new Imap(imapOptions);
 
+    const imap = new Imap(imapOptions);
 
     try {
-       console.log("checkUnreadEmails: Подключение к IMAP...");
+        console.log("checkUnreadEmails: Подключение к IMAP...");
         await new Promise((resolve, reject) => {
             imap.once('ready', resolve);
             imap.once('error', reject);
             imap.connect();
         });
-          console.log("checkUnreadEmails: Успешное подключение к IMAP.");
+        console.log("checkUnreadEmails: Успешное подключение к IMAP.");
 
         const box = await new Promise((resolve, reject) => {
             imap.openBox('INBOX', true, (err, box) => {
@@ -69,7 +63,6 @@ async function checkUnreadEmails(chatId) {
         });
         console.log("checkUnreadEmails: Почтовый ящик открыт.");
 
-
         const searchResults = await new Promise((resolve, reject) => {
             imap.search(['UNSEEN'], (err, results) => {
                 if (err) {
@@ -79,7 +72,7 @@ async function checkUnreadEmails(chatId) {
                 }
             });
         });
-          console.log(`checkUnreadEmails: Найдено ${searchResults.length} непрочитанных писем.`);
+        console.log(`checkUnreadEmails: Найдено ${searchResults.length} непрочитанных писем.`);
 
         if (searchResults.length === 0) {
             bot.sendMessage(chatId, 'Нет новых писем.');
@@ -92,12 +85,12 @@ async function checkUnreadEmails(chatId) {
         const fetch = imap.fetch(searchResults, { bodies: '', struct: true, uid: true });
         fetch.on('message', async (msg, seqno) => {
             try {
-               console.log(`checkUnreadEmails: Получено письмо #${seqno}.`);
+                console.log(`checkUnreadEmails: Получено письмо #${seqno}.`);
 
                 const attributes = await new Promise((resolve) => {
                     msg.on('attributes', (attrs) => resolve(attrs));
                 });
-                   console.log(`checkUnreadEmails: Атрибуты письма #${seqno} получены.`);
+                console.log(`checkUnreadEmails: Атрибуты письма #${seqno} получены.`);
 
                 const parsedMail = await new Promise((resolve, reject) => {
                     msg.on('body', (stream) => {
@@ -127,20 +120,24 @@ async function checkUnreadEmails(chatId) {
             fetch.once('error', reject);
             fetch.once('end', resolve);
         });
-            console.log('checkUnreadEmails: Все письма получены.');
+        console.log('checkUnreadEmails: Все письма получены.');
         imap.end();
     } catch (error) {
-          console.error('checkUnreadEmails: Произошла ошибка:', error);
-          bot.sendMessage(chatId, `Произошла ошибка: ${error.message}`);
-          imap.end();
+        console.error('checkUnreadEmails: Произошла ошибка:', error);
+        bot.sendMessage(chatId, `Произошла ошибка: ${error.message}`);
+        imap.end();
     }
 }
+
 // Обработка команд
 bot.onText(/\/checkEmails/, (msg) => {
     const chatId = msg.chat.id;
     checkUnreadEmails(chatId);
 });
+
 bot.on('message', (msg) => {
     console.log("Получено сообщение:", msg); // Log all incoming messages
 });
+
 console.log('Бот работает!');
+
