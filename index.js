@@ -5,7 +5,7 @@ import { simpleParser } from 'mailparser';
 // Настройки почтовых ящиков
 const mailboxes = {
     mailbox1: {
-        name: "your_yandex_email1@yandex.ru", // Замените на свой email
+        name: "aristosand@yandex.ru", // Замените на свой email
         email: process.env.YANDEX_EMAIL_1,
         password: process.env.YANDEX_PASSWORD_1,
         emoji: '🔵'  // Синий круг
