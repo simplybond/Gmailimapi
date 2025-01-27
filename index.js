@@ -133,7 +133,7 @@ async function checkUnreadEmails(chatId, deleteMode = false, imapInstance = null
                                     console.log(`Письмо от: ${parsed.from?.text}`);
                                     console.log(`Тема: ${parsed.subject}`);
 
-                                    emailSummary += `От: ${parsed.from?.text || 'Неизвестно'}\n`;
+                                    emailSummary = `От: ${parsed.from?.text || 'Неизвестно'}\n`;
                                     emailSummary += `Тема: ${parsed.subject || 'Без темы'}\n`;
                                     emailSummary += `Дата: ${parsed.date?.toLocaleString() || 'Неизвестно'}\n\n`;
 
@@ -280,3 +280,4 @@ bot.on('callback_query', async (query) => {
 bot.on('polling_error', (err) => {
     console.error('Ошибка polling:', err.message);
 });
+
