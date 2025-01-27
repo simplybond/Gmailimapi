@@ -1,3 +1,4 @@
+
 import TelegramBot from 'node-telegram-bot-api';
 import Imap from 'imap';
 import { simpleParser } from 'mailparser';
@@ -31,11 +32,11 @@ bot.getMe()
     });
 
 // Функция проверки непрочитанных писем
-async function checkUnreadEmails(chatId, deleteMode = false) { // Добавим параметр deleteMode
+async function checkUnreadEmails(chatId, deleteMode = false, imapInstance = null) { // Добавим imapInstance
     console.log('Начинаю проверку почты...');
     console.log(`Подключение к IMAP: host=${imapHost}, порт=${imapPort}, пользователь=${emailUser}`);
-
-    const imap = new Imap({
+   
+    const imap = imapInstance || new Imap({
         user: emailUser,
         password: emailPassword,
         host: imapHost,
@@ -44,11 +45,17 @@ async function checkUnreadEmails(chatId, deleteMode = false) { // Добавим
     });
 
     return new Promise((resolve, reject) => {
-        imap.once('ready', () => {
-            console.log('IMAP соединение успешно установлено.');
+         if (!imapInstance) {
+             imap.once('ready', () => {
+                console.log('IMAP соединение успешно установлено.');
+            });
+        }
+            
+
+        const imapOpenBox = () => {
             imap.openBox('INBOX', false, async (err, box) => {
                 if (err) {
-                    console.error('Ошибка открытия почтового ящика:', err.message);
+                   console.error('Ошибка открытия почтового ящика:', err.message);
                     reject(`Ошибка открытия почтового ящика: ${err.message}`);
                     return;
                 }
@@ -66,7 +73,7 @@ async function checkUnreadEmails(chatId, deleteMode = false) { // Добавим
                     if (results.length === 0) {
                         console.log('Нет новых писем.');
                         resolve('Нет новых писем.');
-                        imap.end();
+                        if(!imapInstance) imap.end();
                         return;
                     }
 
@@ -100,7 +107,7 @@ async function checkUnreadEmails(chatId, deleteMode = false) { // Добавим
                          } catch (error) {
                                  reject(`Ошибка удаления писем: ${error}`);
                          } finally {
-                            imap.end();
+                           if(!imapInstance) imap.end();
                          }
                        
                         return;
@@ -139,7 +146,7 @@ async function checkUnreadEmails(chatId, deleteMode = false) { // Добавим
                             inline_keyboard: [[{ text: 'Удалить', callback_data: 'delete_emails' }]],
                         };
                         resolve({summary: emailSummary || 'Писем не найдено.', keyboard: keyboard});
-                        imap.end();
+                       if(!imapInstance) imap.end();
                     });
 
                     fetch.on('error', (err) => {
@@ -148,18 +155,20 @@ async function checkUnreadEmails(chatId, deleteMode = false) { // Добавим
                     });
                 });
             });
-        });
-
-        imap.once('error', (err) => {
-            console.error('Ошибка IMAP-соединения:', err.message);
-            reject(`Ошибка IMAP-соединения: ${err.message}`);
-        });
-
-        imap.once('end', () => {
-            console.log('Соединение IMAP закрыто.');
-        });
-
-        imap.connect();
+        };
+         
+         if(imapInstance) {
+            imapOpenBox();
+         } else {
+             imap.connect(err => {
+                if(err) {
+                    console.error('Ошибка IMAP-соединения:', err.message);
+                      reject(`Ошибка IMAP-соединения: ${err.message}`);
+                } else {
+                    imapOpenBox();
+                }
+           });
+         }
     });
 }
 
@@ -195,17 +204,25 @@ bot.on('callback_query', async (query) => {
     const chatId = query.message.chat.id;
     const messageId = query.message.message_id;
     
+     const imap = new Imap({
+        user: emailUser,
+        password: emailPassword,
+        host: imapHost,
+        port: imapPort,
+        tls: true,
+    });
+
     if (query.data === 'delete_emails') {
          bot.editMessageText('Удаляю письма...', {chat_id: chatId, message_id: messageId});
         try {
-            const result = await checkUnreadEmails(chatId, true); // Вызываем с deleteMode=true
+            const result = await checkUnreadEmails(chatId, true, imap); // Вызываем с deleteMode=true и передаем imap
             bot.editMessageText(result, {chat_id: chatId, message_id: messageId});
         } catch (error) {
            bot.editMessageText(`Ошибка удаления писем: ${error}`, {chat_id: chatId, message_id: messageId});
              console.error('Ошибка удаления писем:', error);
         }
     }
-
+    imap.end();
      bot.answerCallbackQuery(query.id);
 });
 
