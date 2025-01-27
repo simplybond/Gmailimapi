@@ -1,3 +1,38 @@
+
+
+import TelegramBot from 'node-telegram-bot-api';
+import Imap from 'imap';
+import { simpleParser } from 'mailparser';
+import dotenv from 'dotenv';
+
+// Загрузка переменных из .env или Railway
+dotenv.config();
+
+const botToken = process.env.TELEGRAM_BOT_TOKEN;
+const emailUser = process.env.YANDEX_USER;
+const emailPassword = process.env.YANDEX_APP_PASSWORD;
+const imapHost = process.env.IMAP_HOST || 'imap.mail.yandex.ru';
+const imapPort = parseInt(process.env.IMAP_PORT, 10) || 993;
+
+// Проверка необходимых переменных окружения
+if (!botToken || !emailUser || !emailPassword || !imapHost || isNaN(imapPort)) {
+    console.error('Ошибка: не заданы необходимые переменные окружения.');
+    process.exit(1);
+}
+
+// Инициализация бота
+const bot = new TelegramBot(botToken, { polling: true });
+
+bot.getMe()
+    .then((botInfo) => {
+        console.log(`Бот успешно запущен: ${botInfo.username}`);
+    })
+    .catch((err) => {
+        console.error('Ошибка подключения к Telegram API:', err);
+        process.exit(1);
+    });
+
+// Функция проверки непрочитанных писем
 async function checkUnreadEmails(chatId) {
     console.log('Начинаю проверку почты...');
     console.log(`Подключение к IMAP: host=${imapHost}, порт=${imapPort}, пользователь=${emailUser}`);
@@ -23,7 +58,7 @@ async function checkUnreadEmails(chatId) {
                 console.log(`Почтовый ящик открыт. Найдено писем: ${box.messages.total}`);
                 console.log('Ищу непрочитанные письма...');
 
-                imap.search(['UNSEEN'], (err, results) => {
+                imap.search(['UNSEEN'], async (err, results) => { // Добавил async
                     if (err) {
                         console.error('Ошибка поиска писем:', err.message);
                         reject(`Ошибка поиска писем: ${err.message}`);
@@ -39,28 +74,36 @@ async function checkUnreadEmails(chatId) {
 
                     console.log(`Найдено ${results.length} непрочитанных писем.`);
                     const fetch = imap.fetch(results, { bodies: '' });
-                    let emailSummary = 'Непрочитанные письма:\n\n'; // Обновлено, чтобы сразу начать с заголовка
+                    let emailSummary = '';
 
+                    // Используем Promise.all для ожидания всех парсингов писем
+                    const emailPromises = [];
                     fetch.on('message', (msg, seqno) => {
-                        console.log(`Обрабатываю письмо №${seqno}`);
-                        msg.on('body', (stream) => {
-                            simpleParser(stream, (err, parsed) => {
-                                if (err) {
-                                    console.error('Ошибка парсинга письма:', err.message);
-                                    return;
-                                }
+                         console.log(`Обрабатываю письмо №${seqno}`);
+                        const emailPromise = new Promise((resolveMessage) => { // Создаем промис для каждого письма
+                            msg.on('body', (stream) => {
+                                simpleParser(stream, (err, parsed) => {
+                                    if (err) {
+                                        console.error('Ошибка парсинга письма:', err.message);
+                                        resolveMessage(); // Разрешаем промис даже в случае ошибки
+                                        return;
+                                    }
 
-                                console.log(`Письмо от: ${parsed.from?.text}`);
-                                console.log(`Тема: ${parsed.subject}`);
-                                emailSummary += `От: ${parsed.from?.text || 'Неизвестно'}\n`;
-                                emailSummary += `Тема: ${parsed.subject || 'Без темы'}\n`;
-                                emailSummary += `Дата: ${parsed.date?.toLocaleString() || 'Неизвестно'}\n\n`;
+                                    console.log(`Письмо от: ${parsed.from?.text}`);
+                                    console.log(`Тема: ${parsed.subject}`);
+                                    emailSummary += `От: ${parsed.from?.text || 'Неизвестно'}\n`;
+                                    emailSummary += `Тема: ${parsed.subject || 'Без темы'}\n`;
+                                    emailSummary += `Дата: ${parsed.date?.toLocaleString() || 'Неизвестно'}\n\n`;
+                                    resolveMessage(); // Разрешаем промис после парсинга письма
+                                });
                             });
                         });
+                       emailPromises.push(emailPromise);
                     });
 
-                    fetch.on('end', () => {
+                    fetch.on('end', async () => { // Добавил async
                         console.log('Все письма обработаны.');
+                       await Promise.all(emailPromises); // Ждем завершения всех промисов писем
                         resolve(emailSummary || 'Писем не найдено.');
                         imap.end();
                     });
@@ -86,6 +129,13 @@ async function checkUnreadEmails(chatId) {
     });
 }
 
+// Обработчик команды /start
+bot.onText(/\/start/, (msg) => {
+    const chatId = msg.chat.id;
+    console.log(`Получена команда /start от пользователя ${chatId}`);
+    bot.sendMessage(chatId, 'Привет! Напиши /check, чтобы проверить новые письма.');
+});
+
 // Обработчик команды /check
 bot.onText(/\/check/, async (msg) => {
     const chatId = msg.chat.id;
@@ -94,12 +144,14 @@ bot.onText(/\/check/, async (msg) => {
 
     try {
         const emailSummary = await checkUnreadEmails(chatId);
-        console.log(`Отправка результата в Telegram: ${emailSummary}`);
-        bot.sendMessage(chatId, emailSummary); // Здесь отправляем результат в Telegram
+        bot.sendMessage(chatId, emailSummary);
     } catch (err) {
         console.error('Ошибка проверки писем:', err);
         bot.sendMessage(chatId, `Ошибка: ${err}`);
     }
 });
 
-
+// Обработчик ошибок
+bot.on('polling_error', (err) => {
+    console.error('Ошибка polling:', err.message);
+});
