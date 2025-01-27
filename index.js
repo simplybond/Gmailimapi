@@ -1,5 +1,3 @@
-
-
 import TelegramBot from 'node-telegram-bot-api';
 import Imap from 'imap';
 import { simpleParser } from 'mailparser';
@@ -33,7 +31,7 @@ bot.getMe()
     });
 
 // Функция проверки непрочитанных писем
-async function checkUnreadEmails(chatId) {
+async function checkUnreadEmails(chatId, deleteMode = false) { // Добавим параметр deleteMode
     console.log('Начинаю проверку почты...');
     console.log(`Подключение к IMAP: host=${imapHost}, порт=${imapPort}, пользователь=${emailUser}`);
 
@@ -48,7 +46,7 @@ async function checkUnreadEmails(chatId) {
     return new Promise((resolve, reject) => {
         imap.once('ready', () => {
             console.log('IMAP соединение успешно установлено.');
-            imap.openBox('INBOX', false, (err, box) => {
+            imap.openBox('INBOX', false, async (err, box) => {
                 if (err) {
                     console.error('Ошибка открытия почтового ящика:', err.message);
                     reject(`Ошибка открытия почтового ящика: ${err.message}`);
@@ -58,7 +56,7 @@ async function checkUnreadEmails(chatId) {
                 console.log(`Почтовый ящик открыт. Найдено писем: ${box.messages.total}`);
                 console.log('Ищу непрочитанные письма...');
 
-                imap.search(['UNSEEN'], async (err, results) => { // Добавил async
+                imap.search(['UNSEEN'], async (err, results) => {
                     if (err) {
                         console.error('Ошибка поиска писем:', err.message);
                         reject(`Ошибка поиска писем: ${err.message}`);
@@ -73,19 +71,52 @@ async function checkUnreadEmails(chatId) {
                     }
 
                     console.log(`Найдено ${results.length} непрочитанных писем.`);
+                     if (deleteMode) {
+                        console.log('Удаляю непрочитанные письма...');
+                         try {
+                            await new Promise((resolveDelete, rejectDelete) => {
+                                imap.setFlags(results, ['\\Deleted'], (err) => {
+                                    if (err) {
+                                        console.error('Ошибка удаления писем:', err.message);
+                                        rejectDelete(`Ошибка удаления писем: ${err.message}`);
+                                        return;
+                                    }
+                                    
+                                    imap.expunge(err => {
+                                         if (err) {
+                                            console.error('Ошибка expunge:', err.message);
+                                            rejectDelete(`Ошибка expunge: ${err.message}`);
+                                             return;
+                                        }
+
+                                        console.log('Письма успешно удалены.');
+                                         resolveDelete();
+
+                                    });
+                                });
+                            });
+                                
+                            resolve('Непрочитанные письма удалены.');
+                         } catch (error) {
+                                 reject(`Ошибка удаления писем: ${error}`);
+                         } finally {
+                            imap.end();
+                         }
+                       
+                        return;
+                    }
+
                     const fetch = imap.fetch(results, { bodies: '' });
                     let emailSummary = '';
-
-                    // Используем Promise.all для ожидания всех парсингов писем
                     const emailPromises = [];
                     fetch.on('message', (msg, seqno) => {
                          console.log(`Обрабатываю письмо №${seqno}`);
-                        const emailPromise = new Promise((resolveMessage) => { // Создаем промис для каждого письма
+                        const emailPromise = new Promise((resolveMessage) => {
                             msg.on('body', (stream) => {
                                 simpleParser(stream, (err, parsed) => {
                                     if (err) {
                                         console.error('Ошибка парсинга письма:', err.message);
-                                        resolveMessage(); // Разрешаем промис даже в случае ошибки
+                                        resolveMessage();
                                         return;
                                     }
 
@@ -94,17 +125,20 @@ async function checkUnreadEmails(chatId) {
                                     emailSummary += `От: ${parsed.from?.text || 'Неизвестно'}\n`;
                                     emailSummary += `Тема: ${parsed.subject || 'Без темы'}\n`;
                                     emailSummary += `Дата: ${parsed.date?.toLocaleString() || 'Неизвестно'}\n\n`;
-                                    resolveMessage(); // Разрешаем промис после парсинга письма
+                                     resolveMessage();
                                 });
                             });
                         });
-                       emailPromises.push(emailPromise);
+                        emailPromises.push(emailPromise);
                     });
 
-                    fetch.on('end', async () => { // Добавил async
+                    fetch.on('end', async () => {
                         console.log('Все письма обработаны.');
-                       await Promise.all(emailPromises); // Ждем завершения всех промисов писем
-                        resolve(emailSummary || 'Писем не найдено.');
+                         await Promise.all(emailPromises);
+                         const keyboard = {
+                            inline_keyboard: [[{ text: 'Удалить', callback_data: 'delete_emails' }]],
+                        };
+                        resolve({summary: emailSummary || 'Писем не найдено.', keyboard: keyboard});
                         imap.end();
                     });
 
@@ -143,13 +177,38 @@ bot.onText(/\/check/, async (msg) => {
     bot.sendMessage(chatId, 'Проверяю новые письма...');
 
     try {
-        const emailSummary = await checkUnreadEmails(chatId);
-        bot.sendMessage(chatId, emailSummary);
+        const result = await checkUnreadEmails(chatId);
+        if (typeof result === 'string') {
+            bot.sendMessage(chatId, result);
+        } else {
+          bot.sendMessage(chatId, result.summary, {reply_markup: result.keyboard});
+        }
+
     } catch (err) {
         console.error('Ошибка проверки писем:', err);
         bot.sendMessage(chatId, `Ошибка: ${err}`);
     }
 });
+
+// Обработчик callback запросов
+bot.on('callback_query', async (query) => {
+    const chatId = query.message.chat.id;
+    const messageId = query.message.message_id;
+    
+    if (query.data === 'delete_emails') {
+         bot.editMessageText('Удаляю письма...', {chat_id: chatId, message_id: messageId});
+        try {
+            const result = await checkUnreadEmails(chatId, true); // Вызываем с deleteMode=true
+            bot.editMessageText(result, {chat_id: chatId, message_id: messageId});
+        } catch (error) {
+           bot.editMessageText(`Ошибка удаления писем: ${error}`, {chat_id: chatId, message_id: messageId});
+             console.error('Ошибка удаления писем:', error);
+        }
+    }
+
+     bot.answerCallbackQuery(query.id);
+});
+
 
 // Обработчик ошибок
 bot.on('polling_error', (err) => {
