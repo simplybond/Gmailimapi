@@ -1,5 +1,3 @@
-
-
 import TelegramBot from 'node-telegram-bot-api';
 import Imap from 'imap';
 import { simpleParser } from 'mailparser';
@@ -74,21 +72,21 @@ bot.onText(/\/check/, async (msg) => {
 
         if (unreadMessages.length === 0) {
             bot.sendMessage(chatId, 'Новых писем нет.');
-            imap.end();
+             imap.end();
             return;
         }
 
         console.log(`Найдено ${unreadMessages.length} непрочитанных писем`);
 
         // Список сообщений с кнопками "Удалить"
-        const emailPromises = [];
+         const emailPromises = [];
 
-        const fetch = imap.fetch(unreadMessages, { bodies: '' });
+         const fetch = imap.fetch(unreadMessages, { bodies: '' });
 
-        fetch.on('message', (msg, seqno) => {
+         fetch.on('message', (msg, seqno) => {
             const emailPromise = new Promise((resolve) => {
                 msg.on('body', (stream) => {
-                    simpleParser(stream, (err, parsed) => {
+                    simpleParser(stream, async (err, parsed) => {
                         if (err) {
                             console.error('Ошибка парсинга:', err);
                             resolve();
@@ -107,20 +105,22 @@ bot.onText(/\/check/, async (msg) => {
                             callback_data: `delete_email_${seqno}`,
                         }]];
 
-                        bot.sendMessage(chatId, `Письмо от: ${from}\nТема: ${subject}\nДата: ${date}`, {
+
+                         await bot.sendMessage(chatId, `Письмо от: ${from}\nТема: ${subject}\nДата: ${date}`, {
                             reply_markup: { inline_keyboard: inlineKeyboard },
                         });
+
 
                         resolve();
                     });
                 });
             });
-            emailPromises.push(emailPromise);
+           emailPromises.push(emailPromise);
         });
+
 
         fetch.on('end', async () => {
             await Promise.all(emailPromises);
-            imap.end();
         });
 
         fetch.on('error', (err) => {
@@ -130,6 +130,8 @@ bot.onText(/\/check/, async (msg) => {
     } catch (err) {
         console.error('Ошибка при проверке почты:', err);
         bot.sendMessage(chatId, 'Произошла ошибка при проверке почты.');
+    } finally {
+        imap.end();
     }
 });
 
@@ -165,7 +167,7 @@ bot.on('callback_query', async (query) => {
             });
         });
 
-       console.log(`Устанавливаем флаг Deleted для письма №${seqno}...`);
+        console.log(`Устанавливаем флаг Deleted для письма №${seqno}...`);
         // Устанавливаем флаг Deleted
         await new Promise((resolve, reject) => {
             imap.setFlags([seqno], ['\\Deleted'], (err) => {
@@ -178,7 +180,7 @@ bot.on('callback_query', async (query) => {
                 resolve();
             });
          });
-        
+
        console.log(`Выполняем expunge для письма №${seqno}...`);
         // Выполняем expunge
         await new Promise((resolve, reject) => {
