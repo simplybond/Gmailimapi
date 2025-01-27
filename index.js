@@ -1,3 +1,5 @@
+
+
 import TelegramBot from 'node-telegram-bot-api';
 import Imap from 'imap';
 import { simpleParser } from 'mailparser';
@@ -163,17 +165,31 @@ bot.on('callback_query', async (query) => {
             });
         });
 
-        console.log(`Удаляем письмо №${seqno}...`);
-        // Удаляем письмо
+       console.log(`Устанавливаем флаг Deleted для письма №${seqno}...`);
+        // Устанавливаем флаг Deleted
         await new Promise((resolve, reject) => {
             imap.setFlags([seqno], ['\\Deleted'], (err) => {
-                if (err) reject(err);
-                else {
-                    imap.expunge((err) => {
-                        if (err) reject(err);
-                        else resolve();
-                    });
+                if (err) {
+                    console.error(`Ошибка установки флага Deleted для письма №${seqno}:`, err);
+                    reject(err);
+                    return;
+                 }
+                console.log(`Флаг Deleted установлен для письма №${seqno}`);
+                resolve();
+            });
+         });
+        
+       console.log(`Выполняем expunge для письма №${seqno}...`);
+        // Выполняем expunge
+        await new Promise((resolve, reject) => {
+            imap.expunge((err) => {
+                if (err) {
+                  console.error(`Ошибка при выполнении expunge для письма №${seqno}:`, err);
+                  reject(err);
+                  return;
                 }
+                console.log(`Expunge успешно выполнено для письма №${seqno}`);
+                 resolve();
             });
         });
 
@@ -193,4 +209,3 @@ bot.on('callback_query', async (query) => {
 bot.on('polling_error', (err) => {
     console.error('Ошибка polling:', err.message);
 });
-
