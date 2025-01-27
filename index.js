@@ -14,7 +14,7 @@ const bot = new TelegramBot(botToken, { polling: true });
 const email = process.env.GMAIL_EMAIL;
 const password = process.env.GMAIL_APP_PASSWORD;
 const imapHost = process.env.IMAP_HOST || 'imap.yandex.ru';
-const imapPort = parseInt(process.env.IMAP_PORT || '993', 10);
+const imapPort = parseInt(process.env.IMAP_PORT || '142', 10);
 
 // Путь к сертификату
 const certPath = './yandex-cert.pem'; // Убедитесь, что путь соответствует Railway
