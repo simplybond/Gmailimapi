@@ -56,7 +56,6 @@ async function checkUnreadEmails(chatId, deleteMode = false, imapInstance = null
         }
 
         const openBox = () => {
-            console.log('Открываю почтовый ящик...');
             imap.openBox('INBOX', false, async (err, box) => {
                 if (err) {
                     console.error('Ошибка открытия почтового ящика:', err.message);
@@ -82,7 +81,6 @@ async function checkUnreadEmails(chatId, deleteMode = false, imapInstance = null
                     }
 
                     console.log(`Найдено ${results.length} непрочитанных писем.`);
-
                     if (deleteMode) {
                         console.log('Удаляю непрочитанные письма...');
                         try {
@@ -132,22 +130,9 @@ async function checkUnreadEmails(chatId, deleteMode = false, imapInstance = null
 
                                     console.log(`Письмо от: ${parsed.from?.text}`);
                                     console.log(`Тема: ${parsed.subject}`);
-
-                                    emailSummary = `От: ${parsed.from?.text || 'Неизвестно'}\n`;
+                                    emailSummary += `От: ${parsed.from?.text || 'Неизвестно'}\n`;
                                     emailSummary += `Тема: ${parsed.subject || 'Без темы'}\n`;
                                     emailSummary += `Дата: ${parsed.date?.toLocaleString() || 'Неизвестно'}\n\n`;
-
-                                    // Генерация кнопки для каждого письма
-                                    const deleteButton = {
-                                        text: 'Удалить',
-                                        callback_data: `delete_email_${seqno}`,  // добавляем идентификатор письма
-                                    };
-                                    const keyboard = {
-                                        inline_keyboard: [[deleteButton]],
-                                    };
-
-                                    // Отправка сообщения с кнопкой под каждым письмом
-                                    bot.sendMessage(chatId, emailSummary, { reply_markup: keyboard });
                                     resolveMessage();
                                 });
                             });
@@ -158,6 +143,12 @@ async function checkUnreadEmails(chatId, deleteMode = false, imapInstance = null
                     fetch.on('end', async () => {
                         console.log('Все письма обработаны.');
                         await Promise.all(emailPromises);
+                        const keyboard = results.map(seqno => ({
+                            text: `Удалить ${seqno}`,
+                            callback_data: `delete_email_${seqno}`,
+                        }));
+
+                        resolve({ summary: emailSummary || 'Писем не найдено.', keyboard: keyboard });
                         if (!imapInstance) imap.end();
                     });
 
@@ -165,7 +156,6 @@ async function checkUnreadEmails(chatId, deleteMode = false, imapInstance = null
                         console.error('Ошибка получения писем:', err.message);
                         reject(`Ошибка получения писем: ${err.message}`);
                     });
-
                 });
             });
         }
@@ -177,32 +167,6 @@ async function checkUnreadEmails(chatId, deleteMode = false, imapInstance = null
             });
             imap.connect();
         }
-
-    });
-}
-
-// Функция для удаления конкретного письма
-async function deleteEmailBySeqno(seqno, imap) {
-    console.log(`Попытка удаления письма №${seqno}`);
-    return new Promise((resolve, reject) => {
-        imap.setFlags([seqno], ['\\Deleted'], (err) => {
-            if (err) {
-                console.error(`Ошибка удаления письма №${seqno}: ${err.message}`);
-                reject(`Ошибка удаления письма: ${err.message}`);
-                return;
-            }
-
-            imap.expunge(err => {
-                if (err) {
-                    console.error(`Ошибка expunge при удалении письма №${seqno}: ${err.message}`);
-                    reject(`Ошибка expunge: ${err.message}`);
-                    return;
-                }
-
-                console.log(`Письмо №${seqno} успешно удалено.`);
-                resolve(`Письмо №${seqno} успешно удалено.`);
-            });
-        });
     });
 }
 
@@ -219,6 +183,7 @@ bot.onText(/\/check/, async (msg) => {
     console.log(`Получена команда /check от пользователя ${chatId}`);
 
     if (isCheckingEmails) {
+        console.log("Проверка почты уже идет.");
         bot.sendMessage(chatId, 'Пожалуйста, подождите, идет проверка почты.');
         return;
     }
@@ -231,12 +196,13 @@ bot.onText(/\/check/, async (msg) => {
         if (typeof result === 'string') {
             bot.sendMessage(chatId, result);
         } else {
-            bot.sendMessage(chatId, result.summary);
+            bot.sendMessage(chatId, result.summary, { reply_markup: { inline_keyboard: result.keyboard } });
         }
     } catch (err) {
         console.error('Ошибка проверки писем:', err);
         bot.sendMessage(chatId, `Ошибка: ${err}`);
     } finally {
+        console.log("Проверка завершена.");
         isCheckingEmails = false;
     }
 });
@@ -247,29 +213,23 @@ bot.on('callback_query', async (query) => {
     const messageId = query.message.message_id;
     const callbackData = query.data;
 
-    const imap = new Imap({
-        user: emailUser,
-        password: emailPassword,
-        host: imapHost,
-        port: imapPort,
-        tls: true,
-    });
-
-    // Проверяем, является ли запрос удалением письма
     if (callbackData.startsWith('delete_email_')) {
-        const seqno = callbackData.split('_')[2];  // Получаем seqno письма из callback_data
-
+        const seqno = callbackData.split('_')[2];
         bot.editMessageText(`Удаляю письмо №${seqno}...`, { chat_id: chatId, message_id: messageId });
-
         try {
-            // Можете передать seqno для удаления конкретного письма
-            const result = await deleteEmailBySeqno(seqno, imap);
-            bot.editMessageText(result, { chat_id: chatId, message_id: messageId });
-        } catch (error) {
-            bot.editMessageText(`Ошибка удаления письма №${seqno}: ${error}`, { chat_id: chatId, message_id: messageId });
-            console.error('Ошибка удаления письма:', error);
-        } finally {
-            if (imap) imap.end();
+            const imap = new Imap({
+                user: emailUser,
+                password: emailPassword,
+                host: imapHost,
+                port: imapPort,
+                tls: true,
+            });
+
+            await checkUnreadEmails(chatId, true, imap);
+            bot.editMessageText(`Письмо №${seqno} удалено.`, { chat_id: chatId, message_id: messageId });
+        } catch (err) {
+            bot.editMessageText(`Ошибка удаления письма: ${err}`, { chat_id: chatId, message_id: messageId });
+            console.error('Ошибка удаления письма:', err);
         }
     }
 
@@ -280,4 +240,3 @@ bot.on('callback_query', async (query) => {
 bot.on('polling_error', (err) => {
     console.error('Ошибка polling:', err.message);
 });
-
