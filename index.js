@@ -15,7 +15,7 @@ const password = process.env.YANDEX_APP_PASSWORD;
 const imapHost = process.env.IMAP_HOST || 'imap.mail.yandex.ru';
 const imapPort = process.env.IMAP_PORT ? parseInt(process.env.IMAP_PORT, 10) : 993;
 
-// Важная проверка переменных окружения. Обратите внимание на !imapPort
+// Важная проверка переменных окружения
 if (!email || !password || !botToken || !imapHost || isNaN(imapPort)) {
     console.error('Ошибка: Отсутствуют необходимые переменные окружения или неверный формат порта.');
     process.exit(1);
@@ -32,13 +32,12 @@ function handleError(error, chatId, bot, specificError = 'Неизвестная
 }
 
 
-
 async function checkAndProcessEmails(chatId) {
-	console.log(`Проверка писем для пользователя ${email}...`);
-
+    console.log(`Проверка писем для пользователя ${email}...`);
 
     const imap = new Imap({ user: email, password: password, host: imapHost, port: imapPort, tls: true });
     let emailList = "";
+
 
     try {
         await imap.connect();
@@ -47,51 +46,44 @@ async function checkAndProcessEmails(chatId) {
         try {
             await imap.openBox('INBOX', true);
             console.log('Открытие почтового ящика INBOX успешно.');
-			
-			console.log('Поиск непрочитанных писем...');
 
-
-            const searchCriteria = ['UNSEEN']; //Используем только UNSEEN
+            console.log('Поиск непрочитанных писем...');
+            const searchCriteria = ['UNSEEN'];
             const searchResults = await imap.search(searchCriteria);
-			console.log(`Найдено ${searchResults.length} непрочитанных писем.`);
+
+            console.log(`Найдено ${searchResults.length} непрочитанных писем.`);
 
             if (searchResults.length === 0) {
                 console.log('Нет новых писем.');
-                bot.sendMessage(chatId, 'Нет новых писем.');
-                return;
+                return bot.sendMessage(chatId, 'Нет новых писем.');
             }
 
+			
+			for (const seqno of searchResults) {
+				console.log(`Обработка письма с номером ${seqno}...`);
 
-            for (const seqno of searchResults) {
-                const fetch = imap.fetch(seqno, { bodies: ['TEXT'], struct: true, uid: true }); //только текст
-
-
-                for await (const message of fetch) {
-					console.log(`Обработка сообщения ${message.attributes.uid}...`);
-					try {
-						const parsedMail = await simpleParser(message.parts[0].body);
-
-						emailList += `
-							**От:** ${parsedMail.from?.address || 'Неизвестно'}\n
-							**Тема:** ${parsedMail.subject || 'Без темы'}\n
-							**Дата:** ${parsedMail.date ? parsedMail.date.toLocaleString() : 'Неизвестно'}\n\n`;
-
-
-					} catch (err) {
-						handleError(err, chatId, bot, 'Ошибка при парсинге письма (неправильный формат)');
-					}
-                }
-
+				try {
+                    const fetch = imap.fetch(seqno, { bodies: ['TEXT'], struct: true, uid: true });
+                    for await (const message of fetch) {
+						console.log(`Обработка сообщения ${message.attributes.uid}...`);
+                        const parsedMail = await simpleParser(message.parts[0].body);
+                        emailList += `
+                            **От:** ${parsedMail.from?.address || 'Неизвестно'}\n
+                            **Тема:** ${parsedMail.subject || 'Без темы'}\n
+                            **Дата:** ${parsedMail.date ? parsedMail.date.toLocaleString() : 'Неизвестно'}\n\n`;
+                    }
+                } catch (err) {
+					handleError(err, chatId, bot, 'Ошибка при получении/парсинге письма');
+				}
             }
-
 
             bot.sendMessage(chatId, emailList);
 
-
         } catch (err) {
-			// Ошибка открытия INBOX
-			handleError(err, chatId, bot, 'Ошибка открытия почтового ящика');
+            handleError(err, chatId, bot, 'Ошибка открытия почтового ящика');
         }
+
+
     } catch (err) {
         if (err.message.includes("Not authenticated")) {
             handleError(err, chatId, bot, "Неправильные учетные данные (логин или пароль)");
@@ -107,8 +99,6 @@ async function checkAndProcessEmails(chatId) {
 }
 
 
-
-
 // Обработчики команд
 bot.onText(/\/start/, (msg) => {
     const chatId = msg.chat.id;
@@ -121,11 +111,11 @@ bot.onText(/\/start/, (msg) => {
     });
 });
 
+
 bot.on('callback_query', async (query) => {
     const chatId = query.message.chat.id;
-
     if (query.data === 'check_emails') {
         await checkAndProcessEmails(chatId);
-        bot.answerCallbackQuery(query.id, { text: 'Запрос обработан.' }); // Ответ пользователю
+        bot.answerCallbackQuery(query.id);
     }
 });
