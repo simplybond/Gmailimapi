@@ -10,7 +10,7 @@ dotenv.config();
 const botToken = process.env.TELEGRAM_BOT_TOKEN;
 const bot = new TelegramBot(botToken, { polling: true });
 
-// Настройки почтового ящика
+// Настройки почтового ящика (из переменных окружения)
 const email = process.env.YANDEX_USER;
 const password = process.env.YANDEX_APP_PASSWORD;
 const imapHost = process.env.IMAP_HOST || 'imap.mail.yandex.ru';
@@ -31,30 +31,33 @@ function handleError(error, chatId, bot, specificError = 'Непредвиден
     bot.sendMessage(chatId, `Ошибка: ${errorMessage}`);
 }
 
+
 // Функция для проверки и обработки писем
 async function checkAndProcessEmails(chatId) {
+	console.log(`Проверка писем...`);
+
+
     const imap = new Imap({ user: email, password: password, host: imapHost, port: imapPort, tls: true });
 
-    try {
-        await imap.connect();
-        console.log('Подключение к почтовому серверу успешно.');
-
-        try {
-            await imap.openBox('INBOX', true);
-            console.log('Открытие почтового ящика INBOX успешно.');
+	try {
+		await imap.connect();
+        console.log('Подключение к серверу IMAP успешно.');
+        
+		try {
+			await imap.openBox('INBOX', true);
+            console.log('Открытие почтового ящика успешно.');
 
             const searchCriteria = ['UNSEEN', 'NOT DELETED'];
             const searchResults = await imap.search(searchCriteria);
+
 
             if (searchResults.length === 0) {
                 bot.sendMessage(chatId, 'Нет новых писем.');
                 return;
             }
 
-            console.log(`Найдено ${searchResults.length} непрочитанных писем.`);
-		
-			// формирование ответа для пользователя
-            let emailList = "";
+
+            let emailList = '';
             for (const seqno of searchResults) {
                 const fetch = imap.fetch(seqno, { bodies: '', struct: true, uid: true });
 
@@ -65,27 +68,22 @@ async function checkAndProcessEmails(chatId) {
                             message.body.pipe(simpleParser({}, (err, mail) => err ? reject(err) : resolve(mail)));
                         });
 
-                        const emailInfo = `
-                            **От:** ${parsedMail.from?.address || 'Неизвестно'}
-                            **Тема:** ${parsedMail.subject || 'Без темы'}
-                            **Дата:** ${parsedMail.date ? parsedMail.date.toLocaleString() : 'Неизвестно'}
-                        `;
-
-						emailList += emailInfo + "\n";
-
-
+                        emailList += `
+                            **От:** ${parsedMail.from?.address || 'Неизвестно'}\n
+                            **Тема:** ${parsedMail.subject || 'Без темы'}\n
+                            **Дата:** ${parsedMail.date ? parsedMail.date.toLocaleString() : 'Неизвестно'}\n\n`;
                     } catch (parseError) {
                         handleError(parseError, chatId, bot, 'Ошибка парсинга письма');
                     }
                 }
             }
-
-            //Отправляем список писем
             bot.sendMessage(chatId, emailList);
 
         } catch (err) {
             handleError(err, chatId, bot, 'Ошибка открытия почтового ящика');
         }
+
+
     } catch (err) {
         if (err.message.includes("Not authenticated")) {
             handleError(err, chatId, bot, "Неправильные учетные данные (логин или пароль)");
@@ -114,12 +112,11 @@ bot.onText(/\/start/, (msg) => {
     });
 });
 
-
 // Обработчик нажатия кнопки
 bot.on('callback_query', async (query) => {
     const chatId = query.message.chat.id;
-
     if (query.data === 'check_emails') {
+        console.log('Обработка запроса на проверку писем...');
         await checkAndProcessEmails(chatId);
         bot.answerCallbackQuery(query.id);
     }
