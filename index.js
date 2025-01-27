@@ -2,6 +2,7 @@ import TelegramBot from 'node-telegram-bot-api';
 import Imap from 'imap';
 import { simpleParser } from 'mailparser';
 import dotenv from 'dotenv';
+import fs from 'fs';
 
 dotenv.config();
 
@@ -12,8 +13,11 @@ const bot = new TelegramBot(botToken, { polling: true });
 // Настройки почтового ящика
 const email = process.env.GMAIL_EMAIL;
 const password = process.env.GMAIL_APP_PASSWORD;
-const imapHost = process.env.IMAP_HOST || 'imap.yabdex.ru';
+const imapHost = process.env.IMAP_HOST || 'imap.yandex.ru';
 const imapPort = parseInt(process.env.IMAP_PORT || '993', 10);
+
+// Путь к сертификату
+const certPath = './yandex-cert.pem'; // Убедитесь, что путь соответствует Railway
 
 if (!email || !password || !botToken) {
     console.error('Ошибка: Отсутствуют необходимые переменные окружения.');
@@ -21,18 +25,6 @@ if (!email || !password || !botToken) {
 }
 
 console.log('Бот запущен...');
-
-// Добавим обработку команды /start
-bot.onText(/\/start/, (msg) => {
-    console.log("Получено сообщение /start:", msg); // Log the message
-    const chatId = msg.chat.id;
-    bot.sendMessage(chatId, 'Привет! Я ваш бот.');
-    console.log('Отправлено сообщение в ответ на /start');
-});
-    
-bot.on('message', (msg) => {
-   console.log("Получено сообщение:", msg); // Log all incoming messages
-});
 
 // Функция для проверки непрочитанных писем
 async function checkUnreadEmails(chatId) {
@@ -42,6 +34,9 @@ async function checkUnreadEmails(chatId) {
         host: imapHost,
         port: imapPort,
         tls: true,
+        tlsOptions: {
+            ca: [fs.readFileSync(certPath)], // Подключаем сертификат
+        },
     });
 
     try {
@@ -103,15 +98,7 @@ async function checkUnreadEmails(chatId) {
                 **Тема:** ${parsedMail.subject}
                 **Дата:** ${parsedMail.date}
                 `;
-                const deleteButton = {
-                    reply_markup: {
-                        inline_keyboard: [[
-                            { text: 'Удалить 🗑️', callback_data: `delete_${attributes.uid}` }
-                        ]]
-                    }
-                };
-
-                bot.sendMessage(chatId, emailInfo, deleteButton);
+                bot.sendMessage(chatId, emailInfo);
             } catch (parseError) {
                 console.error(`Ошибка при обработке письма #${seqno}:`, parseError);
             }
@@ -129,78 +116,11 @@ async function checkUnreadEmails(chatId) {
     }
 }
 
-// Функция для удаления письма
-async function deleteEmail(chatId, uid) {
-    const imap = new Imap({
-        user: email,
-        password: password,
-        host: imapHost,
-        port: imapPort,
-        tls: true,
-    });
-
-    try {
-        await new Promise((resolve, reject) => {
-            imap.once('ready', resolve);
-            imap.once('error', reject);
-            imap.connect();
-        });
-
-        await new Promise((resolve, reject) => {
-            imap.openBox('INBOX', false, (err, box) => {
-                if (err) {
-                    reject(new Error(`Ошибка открытия почтового ящика для удаления: ${err.message}`));
-                } else {
-                    resolve(box);
-                }
-            });
-        });
-
-        await new Promise((resolve, reject) => {
-            imap.addFlags(uid, '\\Deleted', (err) => {
-                if (err) {
-                    reject(new Error(`Ошибка добавления флага удаления: ${err.message}`));
-                } else {
-                    resolve();
-                }
-            });
-        });
-
-        await new Promise((resolve, reject) => {
-            imap.expunge((err) => {
-                if (err) {
-                    reject(new Error(`Ошибка очистки почтового ящика: ${err.message}`));
-                } else {
-                    console.log(`Письмо с UID ${uid} успешно удалено.`);
-                    bot.sendMessage(chatId, `Письмо с UID ${uid} успешно удалено.`);
-                    resolve();
-                }
-            });
-        });
-
-        imap.end();
-    } catch (error) {
-        console.error('Ошибка при удалении письма:', error);
-        bot.sendMessage(chatId, `Ошибка при удалении письма: ${error.message}`);
-        imap.end();
-    }
-}
-
 // Обработка команд
 bot.onText(/\/checkEmails/, (msg) => {
     const chatId = msg.chat.id;
     checkUnreadEmails(chatId);
 });
 
-bot.on('callback_query', (query) => {
-    const chatId = query.message.chat.id;
-    const data = query.data;
-
-    if (data.startsWith('delete_')) {
-        const uid = data.split('_')[1];
-        deleteEmail(chatId, uid);
-        bot.answerCallbackQuery(query.id);
-    }
-});
-
 console.log('Бот работает!');
+
