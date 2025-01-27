@@ -80,7 +80,6 @@ bot.onText(/\/check/, async (msg) => {
 
         // Список сообщений с кнопками "Удалить"
         const emailPromises = [];
-        const inlineKeyboard = [];
 
         const fetch = imap.fetch(unreadMessages, { bodies: '' });
 
@@ -101,10 +100,10 @@ bot.onText(/\/check/, async (msg) => {
                         console.log(`Обрабатываю письмо ${seqno}: ${subject}`);
 
                         // Добавляем кнопку для каждого письма
-                        inlineKeyboard.push([{
+                        const inlineKeyboard = [[{
                             text: `Удалить письмо ${seqno}`,
                             callback_data: `delete_email_${seqno}`,
-                        }]);
+                        }]];
 
                         bot.sendMessage(chatId, `Письмо от: ${from}\nТема: ${subject}\nДата: ${date}`, {
                             reply_markup: { inline_keyboard: inlineKeyboard },
