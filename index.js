@@ -99,22 +99,42 @@ function deleteEmail(chatId, messageNumber) {
         return;
       }
 
-      // Move message to Trash
-      imap.move(uid, '[Gmail]/Trash', (err) => {
+      // Add Deleted flag and move to Trash
+      imap.addFlags(uid, '\\Deleted', (err) => {
         if (err) {
-          bot.sendMessage(chatId, 'Error moving message to trash');
+          bot.sendMessage(chatId, 'Error marking message as deleted');
           console.error(err);
-        } else {
-          bot.sendMessage(chatId, `Message #${messageNumber} moved to trash`);
-          messageCache.delete(messageNumber);
+          imap.end();
+          return;
         }
-        imap.end();
+
+        // For Yandex.Mail, we need to use 'Trash' folder
+        imap.move(uid, 'Trash', (err) => {
+          if (err) {
+            // If move fails, try expunge
+            imap.expunge((expungeErr) => {
+              if (expungeErr) {
+                bot.sendMessage(chatId, 'Error deleting message');
+                console.error(expungeErr);
+              } else {
+                bot.sendMessage(chatId, `Message #${messageNumber} deleted`);
+                messageCache.delete(messageNumber);
+              }
+              imap.end();
+            });
+          } else {
+            bot.sendMessage(chatId, `Message #${messageNumber} moved to trash`);
+            messageCache.delete(messageNumber);
+            imap.end();
+          }
+        });
       });
     });
   });
 
   imap.once('error', (err) => {
     bot.sendMessage(chatId, 'Connection error');
+    console.error(err);
   });
 
   imap.connect();
