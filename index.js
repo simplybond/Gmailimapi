@@ -1,3 +1,4 @@
+
 import TelegramBot from 'node-telegram-bot-api';
 import Imap from 'imap';
 import { simpleParser } from 'mailparser';
@@ -132,6 +133,9 @@ bot.on('callback_query', async (query) => {
         const uid = data.split('_')[1];
         console.log(`UID для удаления: ${uid}`);
 
+        // Логирование нажатия на кнопку удаления
+        console.log('Нажата кнопка удаления письма.');
+
         const imap = new Imap({
             user: mailbox.email,
             password: mailbox.password,
@@ -179,6 +183,7 @@ bot.on('callback_query', async (query) => {
         imap.connect();
 
         await bot.answerCallbackQuery(query.id)
+            .then(() => console.log('Callback запрос успешно обработан.'))
             .catch((err) => console.error('Ошибка при ответе на callback запрос:', err));
     }
 });
