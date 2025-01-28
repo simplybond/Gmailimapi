@@ -97,31 +97,53 @@ bot.on('callback_query', async (query) => {
         const imap = new Imap({ ...mailbox, tls: true });
         
         imap.once('ready', () => {
-            // Логируем попытку открытия папки "Удаленные"
-            console.log(`Попытка открыть папку "Удаленные"...`);
-            imap.openBox('[Удаленные]', false, (err) => {
+            console.log(`Попытка открыть папку "INBOX"...`);
+            imap.openBox('INBOX', false, (err) => {
                 if (err) {
-                    console.error(`Не удалось открыть папку "Удаленные":`, err);
+                    console.error(`Не удалось открыть папку "INBOX":`, err);
                     return handleError(err, chatId);
                 }
                 
-                console.log(`Папка "Удаленные" успешно открыта.`);
+                console.log(`Папка "INBOX" успешно открыта.`);
 
-                // Копируем письмо в папку "Удаленные"
-                imap.copy(uid, '[Удаленные]', (err) => {
-                    if (err) return handleError(err, chatId);
-                    console.log(`Письмо с UID ${uid} успешно скопировано в папку "Удаленные".`);
+                // Логируем попытку открытия папки "Удаленные"
+                console.log(`Попытка открыть папку "Удаленные"...`);
+                imap.openBox('[Удаленные]', false, (err) => {
+                    if (err) {
+                        console.error(`Не удалось открыть папку "Удаленные":`, err);
+                        return handleError(err, chatId);
+                    }
+                    
+                    console.log(`Папка "Удаленные" успешно открыта.`);
 
-                    // Помечаем письмо как удаленное
-                    imap.store(uid, '+FLAGS', '\\Deleted', (err) => {
-                        if (err) return handleError(err, chatId);
-                        console.log(`Письмо с UID ${uid} помечено как удаленное.`);
+                    // Копируем письмо в папку "Удаленные"
+                    console.log(`Копирование письма с UID ${uid} в папку "Удаленные"...`);
+                    imap.copy(uid, '[Удаленные]', (err) => {
+                        if (err) {
+                            console.error(`Ошибка при копировании письма с UID ${uid}:`, err);
+                            return handleError(err, chatId);
+                        }
+                        console.log(`Письмо с UID ${uid} успешно скопировано в папку "Удаленные".`);
 
-                        // Удаляем помеченные письма
-                        imap.expunge((err) => {
-                            if (err) return handleError(err, chatId);
-                            bot.sendMessage(chatId, `Письмо успешно перемещено в корзину в ${mailbox.name}.`);
-                            imap.end();
+                        // Помечаем письмо как удаленное
+                        console.log(`Пометка письма с UID ${uid} как удаленное...`);
+                        imap.store(uid, '+FLAGS', '\\Deleted', (err) => {
+                            if (err) {
+                                console.error(`Ошибка при пометке письма с UID ${uid} как удаленное:`, err);
+                                return handleError(err, chatId);
+                            }
+                            console.log(`Письмо с UID ${uid} помечено как удаленное.`);
+
+                            // Удаляем помеченные письма
+                            console.log(`Удаление помеченных писем...`);
+                            imap.expunge((err) => {
+                                if (err) {
+                                    console.error(`Ошибка при удалении помеченных писем:`, err);
+                                    return handleError(err, chatId);
+                                }
+                                bot.sendMessage(chatId, `Письмо успешно перемещено в корзину в ${mailbox.name}.`);
+                                imap.end();
+                            });
                         });
                     });
                 });
