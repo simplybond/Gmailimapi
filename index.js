@@ -185,7 +185,14 @@ bot.on('callback_query', async (query) => {
         await bot.answerCallbackQuery(query.id)
             .then(() => console.log('Callback запрос успешно обработан.'))
             .catch((err) => console.error('Ошибка при ответе на callback запрос:', err));
+    } else {
+        console.log('Неизвестное действие в callback запросе.');
     }
 });
 
 console.log('Бот запущен...');
+
+// Обработчик для отладки всех входящих сообщений
+bot.on('message', (msg) => {
+    console.log('Получено сообщение:', msg);
+});
