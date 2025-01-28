@@ -77,8 +77,8 @@ async function checkUnreadEmails(chatId) {
                             }
                             console.log('Сообщение успешно распарсено.');
 
-                            const deleteButton = { reply_markup: { inline_keyboard: [[{ text: 'Удалить 🗑️', callback_data: `delete_${uid}` }]] } };
-                            bot.sendMessage(chatId, `${mailbox.emoji} **От:** ${mail.from.text}\n**Тема:** ${mail.subject}\n**Дата:** ${mail.date}`, deleteButton)
+                            // Отправка сообщения без кнопки удаления
+                            bot.sendMessage(chatId, `${mailbox.emoji} **От:** ${mail.from.text}\n**Тема:** ${mail.subject}\n**Дата:** ${mail.date}`)
                                 .then(() => console.log('Сообщение отправлено в чат.'))
                                 .catch((err) => console.error('Ошибка при отправке сообщения:', err));
                         });
@@ -123,78 +123,9 @@ bot.onText(/\/help/, async (msg) => {
         .catch((err) => console.error('Ошибка при отправке помощи:', err));
 });
 
-bot.on('callback_query', async (query) => {
-    console.log('Получен callback запрос.');
-    const chatId = query.message.chat.id;
-    const data = query.data;
-
-    // Логирование полного объекта callback запроса
-    console.log('Callback запрос:', query);
-
-    if (data.startsWith('delete_')) {
-        const uid = data.split('_')[1];
-        console.log(`UID для удаления: ${uid}`);
-
-        // Логирование нажатия на кнопку удаления
-        console.log('Нажата кнопка удаления письма.');
-
-        const imap = new Imap({
-            user: mailbox.email,
-            password: mailbox.password,
-            host: mailbox.host,
-            port: mailbox.port,
-            tls: true,
-        });
-
-        imap.once('ready', () => {
-            console.log('IMAP готов к работе для удаления письма.');
-            imap.openBox('INBOX', false, (err) => {
-                if (err) {
-                    handleError(err, chatId);
-                    return;
-                }
-                console.log('Открыта почтовая корзина INBOX для удаления.');
-
-                imap.addFlags([uid], '\\Deleted', (err) => {
-                    if (err) {
-                        handleError(err, chatId);
-                        return;
-                    }
-                    console.log('Флаг \\Deleted установлен.');
-
-                    imap.expunge((err) => {
-                        if (err) {
-                            handleError(err, chatId);
-                            return;
-                        }
-                        console.log('Письмо успешно удалено из почтового ящика.');
-                        bot.sendMessage(chatId, `Письмо успешно удалено из ${mailbox.name}.`)
-                            .catch((err) => console.error('Ошибка при отправке подтверждения удаления:', err));
-
-                        imap.end();
-                    });
-                });
-            });
-        });
-
-        imap.once('error', (err) => {
-            handleError(err, chatId);
-            console.error('Ошибка IMAP при удалении:', err);
-        });
-
-        imap.connect();
-
-        await bot.answerCallbackQuery(query.id)
-            .then(() => console.log('Callback запрос успешно обработан.'))
-            .catch((err) => console.error('Ошибка при ответе на callback запрос:', err));
-    } else {
-        console.log('Неизвестное действие в callback запросе.');
-    }
-});
-
 // Обработчик для отладки всех входящих сообщений
 bot.on('message', (msg) => {
-    console.log('Получено сообщение:', msg);
+    console.log('Получено сообщение:', JSON.stringify(msg, null, 2));
 });
 
 console.log('Бот запущен...');
