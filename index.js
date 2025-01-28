@@ -1,4 +1,3 @@
-
 import TelegramBot from 'node-telegram-bot-api';
 import Imap from 'imap';
 import { simpleParser } from 'mailparser';
@@ -129,6 +128,9 @@ bot.on('callback_query', async (query) => {
     const chatId = query.message.chat.id;
     const data = query.data;
 
+    // Логирование полного объекта callback запроса
+    console.log('Callback запрос:', query);
+
     if (data.startsWith('delete_')) {
         const uid = data.split('_')[1];
         console.log(`UID для удаления: ${uid}`);
@@ -190,9 +192,9 @@ bot.on('callback_query', async (query) => {
     }
 });
 
-console.log('Бот запущен...');
-
 // Обработчик для отладки всех входящих сообщений
 bot.on('message', (msg) => {
     console.log('Получено сообщение:', msg);
 });
+
+console.log('Бот запущен...');
