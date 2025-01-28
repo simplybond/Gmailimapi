@@ -36,6 +36,7 @@ async function checkUnreadEmails(chatId) {
     });
 
     imap.once('ready', () => {
+        console.log(`Соединение с IMAP для ${mailbox.name} установлено.`); // Log successful connection
         imap.openBox('INBOX', true, (err, box) => {
             if (err) handleError(err, chatId);
             imap.search(['UNSEEN'], (err, results) => {
@@ -69,14 +70,21 @@ async function checkUnreadEmails(chatId) {
         });
     });
 
-    imap.once('error', (err) => handleError(err, chatId));
+    imap.once('error', (err) => {
+      console.error(`Ошибка подключения к IMAP для ${mailbox.name}:`, err);
+      handleError(err, chatId);
+    });
+
     imap.connect();
 }
 
 function handleError(err, chatId) {
     console.error(`Ошибка в ${mailbox.name}:`, err);
     bot.sendMessage(chatId, `Ошибка в ${mailbox.name}: ${err.message}`);
+    // Добавим более детальный лог
+    console.error(`Detailed error for ${mailbox.name}:`, err, JSON.stringify(err, null, 2));
 }
+
 
 bot.onText(/\/start/, async (msg) => { await checkUnreadEmails(msg.chat.id); });
 bot.onText(/\/help/, async (msg) => { await bot.sendMessage(msg.chat.id, 'Доступные команды:\n/start - Проверить непрочитанные письма'); });
@@ -86,22 +94,26 @@ bot.on('callback_query', async (query) => {
     const data = query.data;
     if (data.startsWith('delete_')) {
         const uid = data.split('_')[1];
+        console.log(`Получен UID для удаления: ${uid}`);
         const imap = new Imap({ ...mailbox, tls: true });
         imap.once('ready', () => {
             imap.openBox('INBOX', false, (err) => {
                 if (err) handleError(err, chatId);
-                imap.move(uid, '[Yandex Trash]', (err) => { // '[Yandex Trash]' - имя папки корзины Yandex
+                imap.move(uid, 'Trash', (err) => { // '[Yandex Trash]' - имя папки корзины Yandex
                     if (err) handleError(err, chatId);
                     bot.sendMessage(chatId, `Письмо успешно перемещено в корзину в ${mailbox.name}.`);
                     imap.end();
                 });
             });
         });
-        imap.once('error', (err) => handleError(err, chatId));
+
+         imap.once('error', (err) => {
+           console.error(`Ошибка IMAP в callback_query для ${mailbox.name}:`, err);
+           handleError(err, chatId);
+         });
         imap.connect();
         await bot.answerCallbackQuery(query.id);
     }
 });
 
 console.log('Бот запущен...');
-
