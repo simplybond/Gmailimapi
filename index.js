@@ -36,7 +36,7 @@ async function checkUnreadEmails(chatId) {
     });
 
     imap.once('ready', () => {
-        console.log(`Соединение с IMAP для ${mailbox.name} установлено.`); // Log successful connection
+        console.log(`Соединение с IMAP для ${mailbox.name} установлено.`);
         imap.openBox('INBOX', true, (err, box) => {
             if (err) handleError(err, chatId);
             imap.search(['UNSEEN'], (err, results) => {
@@ -81,10 +81,8 @@ async function checkUnreadEmails(chatId) {
 function handleError(err, chatId) {
     console.error(`Ошибка в ${mailbox.name}:`, err);
     bot.sendMessage(chatId, `Ошибка в ${mailbox.name}: ${err.message}`);
-    // Добавим более детальный лог
-    console.error(`Detailed error for ${mailbox.name}:`, err, JSON.stringify(err, null, 2));
+    console.error(`Подробная информация об ошибке для ${mailbox.name}:`, err, JSON.stringify(err, null, 2));
 }
-
 
 bot.onText(/\/start/, async (msg) => { await checkUnreadEmails(msg.chat.id); });
 bot.onText(/\/help/, async (msg) => { await bot.sendMessage(msg.chat.id, 'Доступные команды:\n/start - Проверить непрочитанные письма'); });
@@ -92,28 +90,45 @@ bot.onText(/\/help/, async (msg) => { await bot.sendMessage(msg.chat.id, 'Дос
 bot.on('callback_query', async (query) => {
     const chatId = query.message.chat.id;
     const data = query.data;
+    
     if (data.startsWith('delete_')) {
         const uid = data.split('_')[1];
         console.log(`Получен UID для удаления: ${uid}`);
+        
         const imap = new Imap({ ...mailbox, tls: true });
+        
         imap.once('ready', () => {
             imap.openBox('INBOX', false, (err) => {
                 if (err) handleError(err, chatId);
-                imap.move(uid, 'Trash', (err) => { // '[Yandex Trash]' - имя папки корзины Yandex
+                
+                // Копируем письмо в папку "Удаленные"
+                imap.copy(uid, '[Удаленные]', (err) => {
                     if (err) handleError(err, chatId);
-                    bot.sendMessage(chatId, `Письмо успешно перемещено в корзину в ${mailbox.name}.`);
-                    imap.end();
+                    
+                    // Помечаем письмо как удаленное
+                    imap.store(uid, '+FLAGS', '\\Deleted', (err) => {
+                        if (err) handleError(err, chatId);
+                        
+                        // Удаляем помеченные письма
+                        imap.expunge((err) => {
+                            if (err) handleError(err, chatId);
+                            bot.sendMessage(chatId, `Письмо успешно перемещено в корзину в ${mailbox.name}.`);
+                            imap.end();
+                        });
+                    });
                 });
             });
         });
 
-         imap.once('error', (err) => {
-           console.error(`Ошибка IMAP в callback_query для ${mailbox.name}:`, err);
-           handleError(err, chatId);
-         });
+        imap.once('error', (err) => {
+            console.error(`Ошибка IMAP в callback_query для ${mailbox.name}:`, err);
+            handleError(err, chatId);
+        });
+
         imap.connect();
         await bot.answerCallbackQuery(query.id);
     }
 });
 
 console.log('Бот запущен...');
+
