@@ -27,6 +27,8 @@ if (!mailbox.email || !mailbox.password) {
 const bot = new TelegramBot(botToken, { polling: true });
 
 async function checkUnreadEmails(chatId) {
+    console.log(`Функция checkUnreadEmails вызвана для chatId: ${chatId}`);
+    
     const imap = new Imap({
         user: mailbox.email,
         password: mailbox.password,
@@ -37,6 +39,7 @@ async function checkUnreadEmails(chatId) {
 
     imap.once('ready', () => {
         console.log(`Соединение с IMAP для ${mailbox.name} установлено.`);
+        
         imap.openBox('INBOX', true, (err, box) => {
             if (err) {
                 console.error(`Ошибка при открытии папки INBOX:`, err);
@@ -54,18 +57,25 @@ async function checkUnreadEmails(chatId) {
 
                 if (results.length === 0) {
                     bot.sendMessage(chatId, `Нет новых писем в ${mailbox.name}.`);
+                    console.log(`Нет новых писем. Завершение работы функции checkUnreadEmails.`);
                     imap.end();
                     return;
                 }
 
                 bot.sendMessage(chatId, `${results.length} непрочитанных писем в ${mailbox.name}.`);
+                console.log(`Отправлено сообщение о количестве непрочитанных писем.`);
 
                 const f = imap.fetch(results, { bodies: '', struct: true, markSeen: false, uid: true });
 
                 f.on('message', (msg, seqno) => {
+                    console.log(`Обработка сообщения с seqno: ${seqno}`);
                     let uid;
-                    msg.on('attributes', (attrs) => { uid = attrs.uid; });
+                    msg.on('attributes', (attrs) => { 
+                        uid = attrs.uid; 
+                        console.log(`UID сообщения установлен: ${uid}`);
+                    });
                     msg.on('body', (stream) => {
+                        console.log(`Парсинг тела сообщения с UID ${uid}...`);
                         simpleParser(stream, (err, mail) => {
                             if (err) {
                                 console.error(`Ошибка при парсинге письма с UID ${uid}:`, err);
@@ -75,6 +85,7 @@ async function checkUnreadEmails(chatId) {
 
                             const deleteButton = { reply_markup: { inline_keyboard: [[{ text: 'Переместить в корзину 🗑️', callback_data: `delete_${uid}` }]] } };
                             bot.sendMessage(chatId, `${mailbox.emoji} **От:** ${mail.from.text}\n**Тема:** ${mail.subject}\n**Дата:** ${mail.date}`, deleteButton);
+                            console.log(`Сообщение отправлено в чат с ID ${chatId}.`);
                         });
                     });
                 });
@@ -83,6 +94,7 @@ async function checkUnreadEmails(chatId) {
                     console.error(`Ошибка при получении сообщений:`, err);
                     handleError(err, chatId);
                 });
+                
                 f.once('end', () => {
                     console.log(`Завершено получение сообщений.`);
                     imap.end();
@@ -96,6 +108,7 @@ async function checkUnreadEmails(chatId) {
       handleError(err, chatId);
     });
 
+    console.log(`Попытка подключения к IMAP...`);
     imap.connect();
 }
 
@@ -105,6 +118,7 @@ function handleError(err, chatId) {
 }
 
 bot.onText(/\/start/, async (msg) => { 
+    console.log(`/start команда получена от chatId: ${msg.chat.id}`);
     await checkUnreadEmails(msg.chat.id); 
 });
 bot.onText(/\/help/, async (msg) => { 
@@ -167,6 +181,7 @@ bot.on('callback_query', async (query) => {
                                     return handleError(err, chatId);
                                 }
                                 bot.sendMessage(chatId, `Письмо успешно перемещено в корзину в ${mailbox.name}.`);
+                                console.log(`Письмо успешно перемещено в корзину.`);
                                 imap.end();
                             });
                         });
@@ -180,12 +195,14 @@ bot.on('callback_query', async (query) => {
             handleError(err, chatId);
         });
 
+        console.log(`Попытка подключения к IMAP для удаления письма...`);
         imap.connect();
         await bot.answerCallbackQuery(query.id);
     }
 });
 
 console.log('Бот запущен...');
+
 
 
 
