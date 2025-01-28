@@ -50,6 +50,8 @@ async function checkUnreadEmails(chatId) {
                     return handleError(err, chatId);
                 }
 
+                console.log(`Найдено непрочитанных писем: ${results.length}`);
+
                 if (results.length === 0) {
                     bot.sendMessage(chatId, `Нет новых писем в ${mailbox.name}.`);
                     imap.end();
@@ -69,6 +71,8 @@ async function checkUnreadEmails(chatId) {
                                 console.error(`Ошибка при парсинге письма с UID ${uid}:`, err);
                                 return handleError(err, chatId);
                             }
+                            console.log(`Парсинг письма с UID ${uid} завершен.`);
+
                             const deleteButton = { reply_markup: { inline_keyboard: [[{ text: 'Переместить в корзину 🗑️', callback_data: `delete_${uid}` }]] } };
                             bot.sendMessage(chatId, `${mailbox.emoji} **От:** ${mail.from.text}\n**Тема:** ${mail.subject}\n**Дата:** ${mail.date}`, deleteButton);
                         });
