@@ -194,3 +194,4 @@ bot.on('polling_error', (err) => {
     console.error('Ошибка polling:', err.message);
 });
 
+
