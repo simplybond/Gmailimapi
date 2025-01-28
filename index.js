@@ -81,7 +81,6 @@ async function checkUnreadEmails(chatId) {
 function handleError(err, chatId) {
     console.error(`Ошибка в ${mailbox.name}:`, err);
     bot.sendMessage(chatId, `Ошибка в ${mailbox.name}: ${err.message}`);
-    console.error(`Подробная информация об ошибке для ${mailbox.name}:`, err, JSON.stringify(err, null, 2));
 }
 
 bot.onText(/\/start/, async (msg) => { await checkUnreadEmails(msg.chat.id); });
@@ -98,20 +97,29 @@ bot.on('callback_query', async (query) => {
         const imap = new Imap({ ...mailbox, tls: true });
         
         imap.once('ready', () => {
-            imap.openBox('INBOX', false, (err) => {
-                if (err) handleError(err, chatId);
+            // Логируем попытку открытия папки "Удаленные"
+            console.log(`Попытка открыть папку "Удаленные"...`);
+            imap.openBox('[Удаленные]', false, (err) => {
+                if (err) {
+                    console.error(`Не удалось открыть папку "Удаленные":`, err);
+                    return handleError(err, chatId);
+                }
                 
+                console.log(`Папка "Удаленные" успешно открыта.`);
+
                 // Копируем письмо в папку "Удаленные"
                 imap.copy(uid, '[Удаленные]', (err) => {
-                    if (err) handleError(err, chatId);
-                    
+                    if (err) return handleError(err, chatId);
+                    console.log(`Письмо с UID ${uid} успешно скопировано в папку "Удаленные".`);
+
                     // Помечаем письмо как удаленное
                     imap.store(uid, '+FLAGS', '\\Deleted', (err) => {
-                        if (err) handleError(err, chatId);
-                        
+                        if (err) return handleError(err, chatId);
+                        console.log(`Письмо с UID ${uid} помечено как удаленное.`);
+
                         // Удаляем помеченные письма
                         imap.expunge((err) => {
-                            if (err) handleError(err, chatId);
+                            if (err) return handleError(err, chatId);
                             bot.sendMessage(chatId, `Письмо успешно перемещено в корзину в ${mailbox.name}.`);
                             imap.end();
                         });
@@ -131,4 +139,5 @@ bot.on('callback_query', async (query) => {
 });
 
 console.log('Бот запущен...');
+
 
