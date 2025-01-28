@@ -1,3 +1,5 @@
+
+
 import TelegramBot from 'node-telegram-bot-api';
 import Imap from 'imap';
 import { simpleParser } from 'mailparser';
@@ -6,147 +8,149 @@ import dotenv from 'dotenv';
 // Загрузка переменных из .env
 dotenv.config();
 
-const botToken = process.env.TELEGRAM_BOT_TOKEN;
-const emailUser = process.env.YANDEX_USER;
-const emailPassword = process.env.YANDEX_APP_PASSWORD;
-const imapHost = process.env.IMAP_HOST || 'imap.mail.yandex.ru';
-const imapPort = parseInt(process.env.IMAP_PORT, 10) || 993;
+// Настройки почтового ящика Yandex
+const yandexMailbox = {
+    name: "Yandex",
+    email: process.env.YANDEX_EMAIL,
+    password: process.env.YANDEX_APP_PASSWORD, // Используйте App Password!
+    emoji: '✉️'
+};
 
-// Проверка необходимых переменных окружения
-if (!botToken || !emailUser || !emailPassword) {
-    console.error('Ошибка: не заданы необходимые переменные окружения.');
+// Получаем токен бота из переменных окружения
+const botToken = process.env.TELEGRAM_BOT_TOKEN;
+
+// Проверяем наличие переменных окружения
+if (!botToken || !yandexMailbox.email || !yandexMailbox.password) {
+    console.error('Ошибка: Отсутствуют необходимые переменные окружения. Проверьте файл .env.');
     process.exit(1);
 }
 
-// Инициализация бота
 const bot = new TelegramBot(botToken, { polling: true });
 
-// Функция для получения UID писем
-async function getUIDs(imap) {
-    return new Promise((resolve, reject) => {
-        imap.openBox('INBOX', false, (err, box) => {
-            if (err) reject(err);
-            imap.search(['UNSEEN'], (err, results) => {
-                if (err) reject(err);
-                resolve(results);
-            });
-        });
+// Функция для проверки новых писем в Yandex
+async function checkUnreadEmailsYandex(chatId) {
+  const imap = new Imap({
+        user: yandexMailbox.email,
+        password: yandexMailbox.password,
+        host: 'imap.yandex.ru',
+        port: 993,
+        tls: true,
     });
+
+
+    imap.once('ready',  () => {
+      imap.openBox('INBOX', false, (err, box) => {
+            if (err) throw err;
+              imap.search([ 'UNSEEN' ], (err, results) => {
+                    if (err) throw err;
+                  if (results.length === 0) {
+                      bot.sendMessage(chatId, `${yandexMailbox.emoji} У вас нет новых писем в ${yandexMailbox.name}.`);
+                        imap.end();
+                      return;
+                  }
+
+                    const f = imap.fetch(results, { bodies: '', struct: true, markSeen: false, uid: true });
+                      f.on('message',  (msg, seqno) => {
+
+                        let uid;
+                          msg.on('attributes', (attrs) => { uid = attrs.uid; });
+                        msg.on('body', (stream, info) => {
+
+                          simpleParser(stream, {}, (err, mail) => {
+                                if (err)  console.error('Ошибка парсинга письма:', err) ;
+
+                              const deleteButton = {
+                                    reply_markup: {
+                                          inline_keyboard: [
+                                            [{ text: 'Удалить 🗑️', callback_data: `delete_${uid}` }]
+                                          ]
+                                      }
+                                  };
+
+                              bot.sendMessage(
+                                      chatId,
+                                `${yandexMailbox.emoji} **От:** ${mail.from?.text}\n**Тема:** ${mail.subject}\n**Дата:** ${mail.date}`,
+                                deleteButton
+                                  );
+
+                              });
+                         });
+                    });
+                  f.once('error', (err) => {
+                      console.error('Fetch error:',err)
+                    bot.sendMessage(chatId, `Ошибка: ${err}`);
+                  })
+                  f.once('end', () => { imap.end(); });
+                });
+           });
+        });
+
+    imap.once('error', (err) => {
+       console.error('Ошибка подключения:', err);
+      bot.sendMessage(chatId, `Ошибка подключения к почтовому серверу ${yandexMailbox.name}.`);
+    });
+
+    imap.connect();
 }
 
-// Функция для удаления письма по UID
-async function deleteEmailByUID(imap, uid) {
-  return new Promise((resolve, reject) => {
-    imap.openBox('INBOX', false, (err) => {
-      if (err) reject(err);
-      imap.addFlags(uid, ['\\Deleted'], (err) => {
-        if (err) reject(err);
-        imap.expunge((err) => {
-          if (err) reject(err);
-            resolve();
-        });
-      });
+
+async function deleteEmailYandex(chatId, uid) {
+
+const imap = new Imap({
+        user: yandexMailbox.email,
+        password: yandexMailbox.password,
+        host: 'imap.yandex.ru',
+        port: 993,
+        tls: true,
     });
-  });
+    imap.once('ready', () => {
+         imap.openBox('INBOX', false, (err) => {
+        if (err) throw err;
+          imap.addFlags(uid, ['\\Deleted'], (err) => {
+            if(err) throw err;
+             imap.expunge((err) => {
+                    if (err) throw err;
+                      bot.sendMessage(chatId, `Письмо успешно удалено из ${yandexMailbox.name}.`);
+                    imap.end()
+                  });
+                });
+        });
+    });
+
+    imap.once('error',  (err) => {
+        console.error('Ошибка подключения:', err);
+        bot.sendMessage(chatId,  `Ошибка подключения к почтовому серверу ${yandexMailbox.name}.`);
+    });
+    imap.connect()
 }
+
 
 // Обработчик команды /start
-bot.onText(/\/start/, (msg) => {
+bot.onText(/\/start/, async (msg) => {
     const chatId = msg.chat.id;
-    bot.sendMessage(chatId, 'Привет! Напиши /check, чтобы проверить новые письма.');
-});
-
-// Обработчик команды /check
-bot.onText(/\/check/, async (msg) => {
-  const chatId = msg.chat.id;
-    bot.sendMessage(chatId, 'Проверяю новые письма...');
-    try {
-        const imap = new Imap({
-            user: emailUser,
-            password: emailPassword,
-            host: imapHost,
-            port: imapPort,
-            tls: true,
-        });
-
-      imap.once('ready', async () => {
-        const uids = await getUIDs(imap);
-        if (uids.length === 0) {
-          bot.sendMessage(chatId, 'Нет новых писем.');
-          imap.end();
-          return;
-        }
-
-        for (const uid of uids) {
-          const fetch = imap.fetch(uid, { bodies: 'TEXT' });
-          fetch.on('message', (msg) => {
-            msg.on('body', (stream) => {
-                simpleParser(stream, (err, mail) => {
-                    if (err) {
-                        console.error('Ошибка парсинга:', err);
-                        return;
-                  }
-                    bot.sendMessage(chatId, `UID:${uid}\nОт: ${mail.from?.text || 'Неизвестно'}\nТема: ${mail.subject || 'Без темы'}\nДата: ${mail.date?.toLocaleString() || 'Неизвестно'}\n\nТекст:\n${mail.text?.substring(0, 400) || 'Текст не доступен'}`, {
-                        reply_markup: {
-                            inline_keyboard: [
-                                [{ text: 'Удалить', callback_data: `delete:${uid}` }],
-                            ],
-                        },
-                    });
-                });
-            });
-          });
-          fetch.once('error', (err) => {
-              console.error('Fetch error:', err);
-          });
-        }
-      });
-        imap.once('error', (err) => {
-            console.error("IMAP Error:", err);
-            bot.sendMessage(chatId, `Ошибка: ${err.message}`);
-        });
-        imap.connect();
-    } catch (err) {
-        console.error('Ошибка:', err);
-       bot.sendMessage(chatId, `Ошибка: ${err.message}`);
-    }
+    await checkUnreadEmailsYandex(chatId);
 });
 
 
-// Обработчик callback для удаления
+// Обработчик нажатий кнопок
 bot.on('callback_query', async (query) => {
-  if (query.data?.startsWith('delete:')) {
-    const uid = query.data.split(':')[1];
+
     const chatId = query.message.chat.id;
-    const messageId = query.message.message_id;
-    const imap = new Imap({
-            user: emailUser,
-            password: emailPassword,
-            host: imapHost,
-            port: imapPort,
-            tls: true,
-    });
-        try {
-            await new Promise((resolve, reject) => {
-                imap.once('ready', async () => {
-                   await deleteEmailByUID(imap, uid);
-                   bot.editMessageText('Письмо удалено!', { chat_id: chatId, message_id: messageId });
-                    imap.end();
-                    resolve();
-                });
-                imap.once('error', reject);
-                 imap.connect();
-           });
-        } catch (err) {
-            console.error('Ошибка удаления:', err);
-           bot.sendMessage(chatId, `Ошибка при удалении письма: ${err.message}`);
-        }
+    const data = query.data;
+
+     if (data.startsWith('delete_')) {
+        const uid = data.split('_')[1];
+         await deleteEmailYandex(chatId, uid);
+        await bot.answerCallbackQuery(query.id);
     }
 });
 
-
-
-bot.on('polling_error', (err) => {
-  console.error('Polling Error:', err);
+// Команда /help
+bot.onText(/\/help/, async (msg) => {
+    const chatId = msg.chat.id;
+    await bot.sendMessage(chatId, 'Доступные команды:\n/start - Проверить непрочитанные письма');
 });
+
+
+console.log('Бот запущен...');
 
