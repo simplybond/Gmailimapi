@@ -47,7 +47,7 @@ async function checkEmails(chatId) {
           return;
         }
         console.log(`Found ${results.length} unread messages`);
-        console.log('Message UIDs:', results); // Добавляем лог для UIDs
+        console.log('Message UIDs:', results);
 
         if (results.length === 0) {
           bot.sendMessage(chatId, 'No new messages');
@@ -61,7 +61,6 @@ async function checkEmails(chatId) {
         fetch.on('message', (msg, seqno) => {
           console.log(`Processing message #${seqno}`);
           
-          // Получаем UID сообщения
           msg.once('attributes', (attrs) => {
             const uid = attrs.uid;
             console.log(`Got UID ${uid} for message #${seqno}`);
@@ -126,9 +125,18 @@ function deleteEmail(chatId, messageNumber) {
   }
   console.log(`Found UID ${uid} for message #${messageNumber}`);
 
-  imap.once('ready', () => {
+  const newImap = new Imap({
+    user: process.env.YANDEX_EMAIL,
+    password: process.env.YANDEX_PASSWORD,
+    host: 'imap.yandex.com',
+    port: 993,
+    tls: true,
+    tlsOptions: { rejectUnauthorized: false }
+  });
+
+  newImap.once('ready', () => {
     console.log('IMAP connection ready for deletion');
-    imap.openBox('INBOX', false, (err, box) => {
+    newImap.openBox('INBOX', false, (err, box) => {
       if (err) {
         console.error('Error opening mailbox for deletion:', err);
         bot.sendMessage(chatId, 'Error opening mailbox');
@@ -136,55 +144,37 @@ function deleteEmail(chatId, messageNumber) {
       }
       console.log('Mailbox opened successfully for deletion');
 
-      // Add Deleted flag and move to Trash
       console.log(`Adding Deleted flag to message UID ${uid}`);
-      imap.addFlags(uid, '\\Deleted', (err) => {
+      newImap.addFlags([uid], '\\Deleted', (err) => {
         if (err) {
           console.error('Error marking message as deleted:', err);
           bot.sendMessage(chatId, 'Error marking message as deleted');
-          console.error(err);
-          imap.end();
           return;
         }
         console.log('Successfully marked message as deleted');
 
-        // For Yandex.Mail, we need to use 'Trash' folder
-        console.log(`Attempting to move message to Trash folder`);
-        imap.move(uid, 'Trash', (err) => {
-          if (err) {
-            console.error('Error moving to trash, attempting expunge:', err);
-            // If move fails, try expunge
-            imap.expunge((expungeErr) => {
-              if (expungeErr) {
-                console.error('Expunge failed:', expungeErr);
-                bot.sendMessage(chatId, 'Error deleting message');
-                console.error(expungeErr);
-              } else {
-                console.log('Message successfully expunged');
-                bot.sendMessage(chatId, `Message #${messageNumber} deleted`);
-                messageCache.delete(messageNumber);
-              }
-              imap.end();
-            });
+        newImap.expunge((expungeErr) => {
+          if (expungeErr) {
+            console.error('Expunge failed:', expungeErr);
+            bot.sendMessage(chatId, 'Error deleting message');
           } else {
-            console.log('Successfully moved message to trash');
-            bot.sendMessage(chatId, `Message #${messageNumber} moved to trash`);
+            console.log('Message successfully expunged');
+            bot.sendMessage(chatId, `Message #${messageNumber} deleted`);
             messageCache.delete(messageNumber);
-            imap.end();
           }
+          newImap.end();
         });
       });
     });
   });
 
-  imap.once('error', (err) => {
+  newImap.once('error', (err) => {
     console.error('IMAP connection error during deletion:', err);
     bot.sendMessage(chatId, 'Connection error');
-    console.error(err);
   });
 
   console.log('Initiating IMAP connection for deletion');
-  imap.connect();
+  newImap.connect();
 }
 
 // Bot commands
