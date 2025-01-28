@@ -136,8 +136,8 @@ async function checkUnreadEmailsYandex(chatId, email, password, mailboxName, mai
     });
 
     imap.once('error', (err) => {
-         console.error('Ошибка подключения:', err);
-          bot.sendMessage(chatId, `Ошибка подключения к почтовому серверу ${mailboxName}.`);
+        console.error('Ошибка подключения:', err);
+         bot.sendMessage(chatId, `Ошибка подключения к почтовому серверу ${mailboxName}.`);
     });
     console.log(`IMAP 'error' listener attached for: ${mailboxName}`);
     
@@ -201,14 +201,18 @@ async function deleteEmail(chatId, email, password, mailboxName, uid) {
 
 // Обработчик команды /start
 bot.onText(/\/start/, async (msg) => {
-     console.log(`Command /start received, chatId: ${msg.chat.id}`);
+    console.log(`Command /start received, chatId: ${msg.chat.id}`);
     const chatId = msg.chat.id;
+
+    const keyboardButtons = Object.keys(mailboxes).map(key => {
+       const buttonData =  { text: `${mailboxes[key].emoji} ${mailboxes[key].name}`, callback_data: `check_${key}` };
+       console.log('buttonData:', buttonData)
+        return [buttonData]
+    });
 
     const mailboxKeyboard = {
         reply_markup: {
-            inline_keyboard: Object.keys(mailboxes).map(key => [
-                { text: `${mailboxes[key].emoji} ${mailboxes[key].name}`, callback_data: `check_${key}` }
-            ])
+            inline_keyboard: keyboardButtons
         }
     };
 
@@ -218,43 +222,43 @@ bot.onText(/\/start/, async (msg) => {
 
 // Обработчик нажатий кнопок
 bot.on('callback_query', async (query) => {
-     console.log('Callback query received:', query);
+    console.log("Simple callback received", query);
+    console.log('Callback query received:', query);
     const chatId = query.message.chat.id;
     const data = query.data;
     console.log('Data:', data);
-
 
     if (data.startsWith('check_')) {
         const mailboxKey = data.split('_')[1];
         console.log('mailboxKey:', mailboxKey);
         const selectedMailbox = mailboxes[mailboxKey];
-        console.log('selectedMailbox:', selectedMailbox);
+         console.log('selectedMailbox:', selectedMailbox);
         if (!selectedMailbox) {
-            await bot.sendMessage(chatId, 'Ошибка: Неизвестный почтовый ящик.');
+             await bot.sendMessage(chatId, 'Ошибка: Неизвестный почтовый ящик.');
              console.log(`Error: Unknown mailbox, chatId: ${chatId}`);
-            return;
+           return;
         }
-        await checkUnreadEmailsYandex(chatId, selectedMailbox.email, selectedMailbox.password, selectedMailbox.name, selectedMailbox.emoji);
-        await bot.answerCallbackQuery(query.id);
-        console.log(`Callback answered with id: ${query.id}`);
+       await checkUnreadEmailsYandex(chatId, selectedMailbox.email, selectedMailbox.password, selectedMailbox.name, selectedMailbox.emoji);
+       await bot.answerCallbackQuery(query.id);
+       console.log(`Callback answered with id: ${query.id}`);
     } else if (data.startsWith('delete_')) {
         const [, mailboxName, uid] = data.split('_');
-        console.log('delete_mailboxName:', mailboxName, 'uid:', uid);
-        const selectedMailbox = Object.values(mailboxes).find(mailbox => mailbox.name === mailboxName);
+       console.log('delete_mailboxName:', mailboxName, 'uid:', uid);
+       const selectedMailbox = Object.values(mailboxes).find(mailbox => mailbox.name === mailboxName);
          if (!selectedMailbox) {
-             await bot.sendMessage(chatId, 'Ошибка: Неизвестный почтовый ящик.');
-             console.log(`Error: Unknown mailbox for delete, chatId: ${chatId}`);
+              await bot.sendMessage(chatId, 'Ошибка: Неизвестный почтовый ящик.');
+               console.log(`Error: Unknown mailbox for delete, chatId: ${chatId}`);
             return;
-        }
-         await deleteEmail(chatId, selectedMailbox.email, selectedMailbox.password, selectedMailbox.name, uid);
-         await bot.answerCallbackQuery(query.id);
+       }
+        await deleteEmail(chatId, selectedMailbox.email, selectedMailbox.password, selectedMailbox.name, uid);
+       await bot.answerCallbackQuery(query.id);
          console.log(`Callback answered with id: ${query.id}`);
     }
 });
 
 // Команда /help
 bot.onText(/\/help/, async (msg) => {
-     console.log(`Command /help received, chatId: ${msg.chat.id}`);
+    console.log(`Command /help received, chatId: ${msg.chat.id}`);
     const chatId = msg.chat.id;
     await bot.sendMessage(chatId, 'Доступные команды:\n/start - Проверить непрочитанные письма');
     console.log(`Help message sent to chat id: ${chatId}`);
