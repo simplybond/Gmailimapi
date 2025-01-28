@@ -1,207 +1,142 @@
-import TelegramBot from 'node-telegram-bot-api';
-import Imap from 'imap';
-import { simpleParser } from 'mailparser';
+const TelegramBot = require('node-telegram-bot-api');
+const Imap = require('imap');
+const { simpleParser } = require('mailparser');
+require('dotenv').config();
 
-// Настройки почтового ящика Yandex
-const mailbox = {
-    name: "your_yandex_name@yandex.ru",
-    email: process.env.YANDEX_EMAIL,
-    password: process.env.YANDEX_PASSWORD,
-    host: 'imap.yandex.ru',
-    port: 993,
-    emoji: '🔴'
-};
+// Telegram Bot setup
+const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: true });
 
-const botToken = process.env.TELEGRAM_BOT_TOKEN;
+// Yandex Mail IMAP configuration
+const imap = new Imap({
+  user: process.env.YANDEX_EMAIL,
+  password: process.env.YANDEX_PASSWORD,
+  host: 'imap.yandex.com',
+  port: 993,
+  tls: true,
+  tlsOptions: { rejectUnauthorized: false }
+});
 
-if (!botToken) {
-    console.error('Ошибка: TELEGRAM_BOT_TOKEN не найден.');
-    process.exit(1);
-}
+// Store message UIDs for deletion
+const messageCache = new Map();
 
-if (!mailbox.email || !mailbox.password) {
-    console.error(`Ошибка: Настройки для ${mailbox.name} не найдены.`);
-    process.exit(1);
-}
+// Function to check emails
+async function checkEmails(chatId) {
+  imap.once('ready', () => {
+    imap.openBox('INBOX', false, (err, box) => {
+      if (err) {
+        bot.sendMessage(chatId, 'Error opening mailbox');
+        return;
+      }
 
-const bot = new TelegramBot(botToken, { polling: true });
+      // Search for unread messages
+      imap.search(['UNSEEN'], (err, results) => {
+        if (err) {
+          bot.sendMessage(chatId, 'Error searching messages');
+          return;
+        }
 
-async function checkUnreadEmails(chatId) {
-    console.log(`Функция checkUnreadEmails вызвана для chatId: ${chatId}`);
-    
-    const imap = new Imap({
-        user: mailbox.email,
-        password: mailbox.password,
-        host: mailbox.host,
-        port: mailbox.port,
-        tls: true,
-    });
+        if (results.length === 0) {
+          bot.sendMessage(chatId, 'No new messages');
+          imap.end();
+          return;
+        }
 
-    imap.once('ready', () => {
-        console.log(`Соединение с IMAP для ${mailbox.name} установлено.`);
-        
-        imap.openBox('INBOX', true, (err, box) => {
-            if (err) {
-                console.error(`Ошибка при открытии папки INBOX:`, err);
-                return handleError(err, chatId);
-            }
-            console.log(`Папка INBOX успешно открыта.`);
+        const fetch = imap.fetch(results, { bodies: '' });
 
-            imap.search(['UNSEEN'], (err, results) => {
-                if (err) {
-                    console.error(`Ошибка при поиске непрочитанных писем:`, err);
-                    return handleError(err, chatId);
-                }
+        fetch.on('message', (msg, seqno) => {
+          msg.on('body', (stream) => {
+            simpleParser(stream, async (err, parsed) => {
+              if (err) return;
 
-                console.log(`Найдено непрочитанных писем: ${results.length}`);
+              const uid = results[seqno - 1];
+              messageCache.set(seqno.toString(), uid);
 
-                if (results.length === 0) {
-                    bot.sendMessage(chatId, `Нет новых писем в ${mailbox.name}.`);
-                    console.log(`Нет новых писем. Завершение работы функции checkUnreadEmails.`);
-                    imap.end();
-                    return;
-                }
+              const message = `
+Message #${seqno}:
+From: ${parsed.from.text}
+Subject: ${parsed.subject}
+Date: ${parsed.date}
 
-                bot.sendMessage(chatId, `${results.length} непрочитанных писем в ${mailbox.name}.`);
-                console.log(`Отправлено сообщение о количестве непрочитанных писем.`);
-
-                const f = imap.fetch(results, { bodies: '', struct: true, markSeen: false, uid: true });
-
-                f.on('message', (msg, seqno) => {
-                    console.log(`Обработка сообщения с seqno: ${seqno}`);
-                    let uid;
-                    msg.on('attributes', (attrs) => { 
-                        uid = attrs.uid; 
-                        console.log(`UID сообщения установлен: ${uid}`);
-                    });
-                    msg.on('body', (stream) => {
-                        console.log(`Парсинг тела сообщения с UID ${uid}...`);
-                        simpleParser(stream, (err, mail) => {
-                            if (err) {
-                                console.error(`Ошибка при парсинге письма с UID ${uid}:`, err);
-                                return handleError(err, chatId);
-                            }
-                            console.log(`Парсинг письма с UID ${uid} завершен.`);
-
-                            const deleteButton = { reply_markup: { inline_keyboard: [[{ text: 'Переместить в корзину 🗑️', callback_data: `delete_${uid}` }]] } };
-                            bot.sendMessage(chatId, `${mailbox.emoji} **От:** ${mail.from.text}\n**Тема:** ${mail.subject}\n**Дата:** ${mail.date}`, deleteButton);
-                            console.log(`Сообщение отправлено в чат с ID ${chatId}.`);
-                        });
-                    });
-                });
-
-                f.once('error', (err) => {
-                    console.error(`Ошибка при получении сообщений:`, err);
-                    handleError(err, chatId);
-                });
-                
-                f.once('end', () => {
-                    console.log(`Завершено получение сообщений.`);
-                    imap.end();
-                });
+To delete this message, use /delete ${seqno}
+`;
+              bot.sendMessage(chatId, message);
             });
+          });
         });
-    });
 
-    imap.once('error', (err) => {
-      console.error(`Ошибка подключения к IMAP для ${mailbox.name}:`, err);
-      handleError(err, chatId);
-    });
+        fetch.once('error', (err) => {
+          bot.sendMessage(chatId, 'Error fetching messages');
+        });
 
-    console.log(`Попытка подключения к IMAP...`);
-    imap.connect();
+        fetch.once('end', () => {
+          imap.end();
+        });
+      });
+    });
+  });
+
+  imap.once('error', (err) => {
+    bot.sendMessage(chatId, 'Connection error');
+  });
+
+  imap.connect();
 }
 
-function handleError(err, chatId) {
-    console.error(`Ошибка в ${mailbox.name}:`, err);
-    bot.sendMessage(chatId, `Ошибка в ${mailbox.name}: ${err.message}`);
+// Function to delete email
+function deleteEmail(chatId, messageNumber) {
+  const uid = messageCache.get(messageNumber);
+  if (!uid) {
+    bot.sendMessage(chatId, 'Message not found. Please check messages first using /check');
+    return;
+  }
+
+  imap.once('ready', () => {
+    imap.openBox('INBOX', false, (err, box) => {
+      if (err) {
+        bot.sendMessage(chatId, 'Error opening mailbox');
+        return;
+      }
+
+      // Move message to Trash
+      imap.move(uid, '[Gmail]/Trash', (err) => {
+        if (err) {
+          bot.sendMessage(chatId, 'Error moving message to trash');
+          console.error(err);
+        } else {
+          bot.sendMessage(chatId, `Message #${messageNumber} moved to trash`);
+          messageCache.delete(messageNumber);
+        }
+        imap.end();
+      });
+    });
+  });
+
+  imap.once('error', (err) => {
+    bot.sendMessage(chatId, 'Connection error');
+  });
+
+  imap.connect();
 }
 
-bot.onText(/\/start/, async (msg) => { 
-    console.log(`/start команда получена от chatId: ${msg.chat.id}`);
-    await checkUnreadEmails(msg.chat.id); 
-});
-bot.onText(/\/help/, async (msg) => { 
-    await bot.sendMessage(msg.chat.id, 'Доступные команды:\n/start - Проверить непрочитанные письма'); 
+// Bot commands
+bot.onText(/\/start/, (msg) => {
+  const chatId = msg.chat.id;
+  bot.sendMessage(chatId, 'Welcome! Use /check to check for new emails and /delete <number> to move a message to trash.');
 });
 
-bot.on('callback_query', async (query) => {
-    const chatId = query.message.chat.id;
-    const data = query.data;
-    
-    if (data.startsWith('delete_')) {
-        const uid = data.split('_')[1];
-        console.log(`Получен UID для удаления: ${uid}`);
-        
-        const imap = new Imap({ ...mailbox, tls: true });
-        
-        imap.once('ready', () => {
-            console.log(`Попытка открыть папку INBOX...`);
-            imap.openBox('INBOX', false, (err) => {
-                if (err) {
-                    console.error(`Не удалось открыть папку INBOX:`, err);
-                    return handleError(err, chatId);
-                }
-                
-                console.log(`Папка INBOX успешно открыта.`);
-
-                // Логируем попытку открытия папки "Удаленные"
-                console.log(`Попытка открыть папку "Удаленные"...`);
-                imap.openBox('[Удаленные]', false, (err) => {
-                    if (err) {
-                        console.error(`Не удалось открыть папку "Удаленные":`, err);
-                        return handleError(err, chatId);
-                    }
-                    
-                    console.log(`Папка "Удаленные" успешно открыта.`);
-
-                    // Копируем письмо в папку "Удаленные"
-                    console.log(`Копирование письма с UID ${uid} в папку "Удаленные"...`);
-                    imap.copy(uid, '[Удаленные]', (err) => {
-                        if (err) {
-                            console.error(`Ошибка при копировании письма с UID ${uid}:`, err);
-                            return handleError(err, chatId);
-                        }
-                        console.log(`Письмо с UID ${uid} успешно скопировано в папку "Удаленные".`);
-
-                        // Помечаем письмо как удаленное
-                        console.log(`Пометка письма с UID ${uid} как удаленное...`);
-                        imap.store(uid, '+FLAGS', '\\Deleted', (err) => {
-                            if (err) {
-                                console.error(`Ошибка при пометке письма с UID ${uid} как удаленное:`, err);
-                                return handleError(err, chatId);
-                            }
-                            console.log(`Письмо с UID ${uid} помечено как удаленное.`);
-
-                            // Удаляем помеченные письма
-                            console.log(`Удаление помеченных писем...`);
-                            imap.expunge((err) => {
-                                if (err) {
-                                    console.error(`Ошибка при удалении помеченных писем:`, err);
-                                    return handleError(err, chatId);
-                                }
-                                bot.sendMessage(chatId, `Письмо успешно перемещено в корзину в ${mailbox.name}.`);
-                                console.log(`Письмо успешно перемещено в корзину.`);
-                                imap.end();
-                            });
-                        });
-                    });
-                });
-            });
-        });
-
-        imap.once('error', (err) => {
-            console.error(`Ошибка IMAP в callback_query для ${mailbox.name}:`, err);
-            handleError(err, chatId);
-        });
-
-        console.log(`Попытка подключения к IMAP для удаления письма...`);
-        imap.connect();
-        await bot.answerCallbackQuery(query.id);
-    }
+bot.onText(/\/check/, (msg) => {
+  const chatId = msg.chat.id;
+  bot.sendMessage(chatId, 'Checking for new emails...');
+  checkEmails(chatId);
 });
 
-console.log('Бот запущен...');
+bot.onText(/\/delete (.+)/, (msg, match) => {
+  const chatId = msg.chat.id;
+  const messageNumber = match[1];
+  deleteEmail(chatId, messageNumber);
+});
+
+console.log('Bot is running...');
 
 
 
