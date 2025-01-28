@@ -1,7 +1,9 @@
-const TelegramBot = require('node-telegram-bot-api');
-const Imap = require('imap');
-const { simpleParser } = require('mailparser');
-require('dotenv').config();
+import TelegramBot from 'node-telegram-bot-api';
+import Imap from 'imap';
+import { simpleParser } from 'mailparser';
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 // Telegram Bot setup
 const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: true });
