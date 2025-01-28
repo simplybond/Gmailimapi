@@ -38,9 +38,17 @@ async function checkUnreadEmails(chatId) {
     imap.once('ready', () => {
         console.log(`Соединение с IMAP для ${mailbox.name} установлено.`);
         imap.openBox('INBOX', true, (err, box) => {
-            if (err) handleError(err, chatId);
+            if (err) {
+                console.error(`Ошибка при открытии папки INBOX:`, err);
+                return handleError(err, chatId);
+            }
+            console.log(`Папка INBOX успешно открыта.`);
+
             imap.search(['UNSEEN'], (err, results) => {
-                if (err) handleError(err, chatId);
+                if (err) {
+                    console.error(`Ошибка при поиске непрочитанных писем:`, err);
+                    return handleError(err, chatId);
+                }
 
                 if (results.length === 0) {
                     bot.sendMessage(chatId, `Нет новых писем в ${mailbox.name}.`);
@@ -57,15 +65,24 @@ async function checkUnreadEmails(chatId) {
                     msg.on('attributes', (attrs) => { uid = attrs.uid; });
                     msg.on('body', (stream) => {
                         simpleParser(stream, (err, mail) => {
-                            if (err) handleError(err, chatId);
+                            if (err) {
+                                console.error(`Ошибка при парсинге письма с UID ${uid}:`, err);
+                                return handleError(err, chatId);
+                            }
                             const deleteButton = { reply_markup: { inline_keyboard: [[{ text: 'Переместить в корзину 🗑️', callback_data: `delete_${uid}` }]] } };
                             bot.sendMessage(chatId, `${mailbox.emoji} **От:** ${mail.from.text}\n**Тема:** ${mail.subject}\n**Дата:** ${mail.date}`, deleteButton);
                         });
                     });
                 });
 
-                f.once('error', (err) => handleError(err, chatId));
-                f.once('end', () => imap.end());
+                f.once('error', (err) => {
+                    console.error(`Ошибка при получении сообщений:`, err);
+                    handleError(err, chatId);
+                });
+                f.once('end', () => {
+                    console.log(`Завершено получение сообщений.`);
+                    imap.end();
+                });
             });
         });
     });
@@ -83,8 +100,12 @@ function handleError(err, chatId) {
     bot.sendMessage(chatId, `Ошибка в ${mailbox.name}: ${err.message}`);
 }
 
-bot.onText(/\/start/, async (msg) => { await checkUnreadEmails(msg.chat.id); });
-bot.onText(/\/help/, async (msg) => { await bot.sendMessage(msg.chat.id, 'Доступные команды:\n/start - Проверить непрочитанные письма'); });
+bot.onText(/\/start/, async (msg) => { 
+    await checkUnreadEmails(msg.chat.id); 
+});
+bot.onText(/\/help/, async (msg) => { 
+    await bot.sendMessage(msg.chat.id, 'Доступные команды:\n/start - Проверить непрочитанные письма'); 
+});
 
 bot.on('callback_query', async (query) => {
     const chatId = query.message.chat.id;
@@ -97,14 +118,14 @@ bot.on('callback_query', async (query) => {
         const imap = new Imap({ ...mailbox, tls: true });
         
         imap.once('ready', () => {
-            console.log(`Попытка открыть папку "INBOX"...`);
+            console.log(`Попытка открыть папку INBOX...`);
             imap.openBox('INBOX', false, (err) => {
                 if (err) {
-                    console.error(`Не удалось открыть папку "INBOX":`, err);
+                    console.error(`Не удалось открыть папку INBOX:`, err);
                     return handleError(err, chatId);
                 }
                 
-                console.log(`Папка "INBOX" успешно открыта.`);
+                console.log(`Папка INBOX успешно открыта.`);
 
                 // Логируем попытку открытия папки "Удаленные"
                 console.log(`Попытка открыть папку "Удаленные"...`);
@@ -161,5 +182,6 @@ bot.on('callback_query', async (query) => {
 });
 
 console.log('Бот запущен...');
+
 
 
