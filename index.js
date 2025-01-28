@@ -47,6 +47,7 @@ async function checkEmails(chatId) {
           return;
         }
         console.log(`Found ${results.length} unread messages`);
+        console.log('Message UIDs:', results); // Добавляем лог для UIDs
 
         if (results.length === 0) {
           bot.sendMessage(chatId, 'No new messages');
@@ -54,11 +55,19 @@ async function checkEmails(chatId) {
           return;
         }
 
-        const fetch = imap.fetch(results, { bodies: '' });
+        const fetch = imap.fetch(results, { bodies: '', struct: true });
         console.log('Started fetching message bodies');
 
         fetch.on('message', (msg, seqno) => {
           console.log(`Processing message #${seqno}`);
+          
+          // Получаем UID сообщения
+          msg.once('attributes', (attrs) => {
+            const uid = attrs.uid;
+            console.log(`Got UID ${uid} for message #${seqno}`);
+            messageCache.set(seqno.toString(), uid);
+          });
+
           msg.on('body', (stream) => {
             simpleParser(stream, async (err, parsed) => {
               if (err) {
@@ -66,10 +75,6 @@ async function checkEmails(chatId) {
                 return;
               }
               console.log(`Successfully parsed message #${seqno}`);
-
-              const uid = results[seqno - 1];
-              messageCache.set(seqno.toString(), uid);
-              console.log(`Cached UID ${uid} for message #${seqno}`);
 
               const message = `
 Message #${seqno}:
@@ -92,6 +97,7 @@ To delete this message, use /delete ${seqno}
 
         fetch.once('end', () => {
           console.log('Finished fetching all messages');
+          console.log('Current message cache:', Object.fromEntries(messageCache));
           imap.end();
         });
       });
@@ -110,6 +116,7 @@ To delete this message, use /delete ${seqno}
 // Function to delete email
 function deleteEmail(chatId, messageNumber) {
   console.log(`Starting delete operation for message #${messageNumber} in chat ${chatId}`);
+  console.log('Current message cache:', Object.fromEntries(messageCache));
   
   const uid = messageCache.get(messageNumber);
   if (!uid) {
