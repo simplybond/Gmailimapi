@@ -3,7 +3,7 @@ import Imap from 'imap';
 import { simpleParser } from 'mailparser';
 
 const mailbox = {
-    name: "your_yandex_name@yandex.ru",
+    name: process.env.YANDEX_EMAIL,
     email: process.env.YANDEX_EMAIL,
     password: process.env.YANDEX_PASSWORD,
     host: 'imap.yandex.ru',
