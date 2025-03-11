@@ -1,6 +1,6 @@
-import TelegramBot from 'node-telegram-bot-api';
-import Imap from 'imap';
-import { simpleParser } from 'mailparser';
+//import TelegramBot from 'node-telegram-bot-api';
+//import Imap from 'imap';
+//import { simpleParser } from 'mailparser';
 
 const mailbox = {
     name: process.env.YANDEX_EMAIL,
